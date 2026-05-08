@@ -2,19 +2,12 @@ import streamlit as st
 import boto3
 from botocore.config import Config
 
-# --- 1. CONFIGURAZIONE E WHITELIST ---
-# Elenco delle email autorizzate a vedere i video
-AUTHORIZED_USERS = [
-    "utente1@gmail.com",
-    "cliente.speciale@azienda.it",
-    "tua.email@gmail.com" # Aggiungi la tua email!
-]
+# --- CONFIGURAZIONE ---
+AUTHORIZED_EMAILS = ["utente1@gmail.com", "utente2@gmail.com"] # Email autorizzate
+ADMIN_USER = "Admin"
+ADMIN_PASS = "Philips!"
 
-# Credenziali Admin (per caricare/cancellare)
-ADMIN_USER = st.secrets["ADMIN_USER"]
-ADMIN_PASS = st.secrets["ADMIN_PASS"]
-
-# Connessione R2
+# Connessione Cloudflare R2
 s3 = boto3.client(
     "s3",
     endpoint_url=st.secrets["R2_ENDPOINT"],
@@ -25,7 +18,7 @@ s3 = boto3.client(
 )
 BUCKET = st.secrets["BUCKET_NAME"]
 
-# --- 2. FUNZIONI DI SERVIZIO ---
+# --- FUNZIONI ---
 def list_videos():
     res = s3.list_objects_v2(Bucket=BUCKET)
     return [obj['Key'] for obj in res.get('Contents', []) if obj['Key'].endswith('.mp4')]
@@ -33,55 +26,68 @@ def list_videos():
 def get_signed_url(key):
     return s3.generate_presigned_url('get_object', Params={'Bucket': BUCKET, 'Key': key}, ExpiresIn=3600)
 
-# --- 3. CONTROLLO IDENTITÀ (IL BUTTAFUORI) ---
-# Recupera l'utente loggato su Streamlit Cloud
-user_info = st.user
+# --- GESTIONE ACCESSO ---
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "role" not in st.session_state:
+    st.session_state.role = None # "admin" o "user"
 
-def check_auth():
-    if not user_info or user_info.email not in AUTHORIZED_USERS:
-        st.error("🚫 Accesso negato. La tua identità non è autorizzata a visualizzare questo portale.")
-        st.info("Assicurati di aver effettuato l'accesso a Streamlit con l'email corretta.")
-        st.stop() # Blocca l'esecuzione di tutto il resto dello script
-
-# --- 4. INTERFACCIA ---
-
-# Se l'utente non è loggato con l'email della whitelist, lo script si ferma qui
-check_auth()
-
-# Se arriviamo qui, l'utente è autorizzato. Mostriamo l'interfaccia.
-st.title("🔐 Portale Video Riservato")
-st.write(f"Benvenuto, **{user_info.email}**")
-
-# Gestione Login AMMINISTRATORE (opzionale, per gestire i file)
-if "is_admin" not in st.session_state:
-    st.session_state.is_admin = False
-
-with st.sidebar:
-    st.header("Area Amministrativa")
-    if not st.session_state.is_admin:
-        u = st.text_input("Username Admin")
-        p = st.text_input("Password Admin", type="password")
-        if st.button("Login Admin"):
-            if u == ADMIN_USER and p == ADMIN_PASS:
-                st.session_state.is_admin = True
-                st.rerun()
-    else:
-        st.success("Modalità Admin Attiva")
-        if st.button("Logout Admin"):
-            st.session_state.is_admin = False
+# PAGINA DI LOGIN (Viene mostrata se non sei autenticato)
+if not st.session_state.authenticated:
+    st.title("🔐 Accesso Riservato")
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
+    
+    if st.button("Accedi"):
+        # 1. Controllo se è l'Admin (Philips!)
+        if u == ADMIN_USER and p == ADMIN_PASS:
+            st.session_state.authenticated = True
+            st.session_state.role = "admin"
             st.rerun()
+        
+        # 2. Se non è admin, controllo l'email di Streamlit Cloud
+        else:
+            # Recuperiamo l'email di chi è loggato nel browser su Streamlit
+            current_user_email = st.user.email if st.user else None
+            
+            if current_user_email in AUTHORIZED_EMAILS:
+                st.session_state.authenticated = True
+                st.session_state.role = "user"
+                st.rerun()
+            else:
+                st.error("Identità non riconosciuta o credenziali errate.")
+                if not current_user_email:
+                    st.info("Nota: Per l'accesso utente devi essere loggato su Streamlit Cloud.")
+                else:
+                    st.warning(f"L'email {current_user_email} non è abilitata.")
+    st.stop() # Blocca tutto il resto finché non sei loggato
 
-# --- 5. LOGICA VISUALIZZAZIONE / GESTIONE ---
+# --- SE ARRIVIAMO QUI, L'UTENTE È DENTRO ---
+st.title("🎬 Portale Video")
+if st.session_state.role == "admin":
+    st.sidebar.success("Accesso: AMMINISTRATORE")
+else:
+    st.sidebar.info(f"Accesso: UTENTE ({st.user.email})")
+
+if st.sidebar.button("Logout"):
+    st.session_state.authenticated = False
+    st.session_state.role = None
+    st.rerun()
+
+# --- LOGICA VIDEO ---
 videos = list_videos()
 
-if st.session_state.is_admin:
-    st.subheader("🛠️ Gestione File (Admin)")
-    up = st.file_uploader("Carica nuovo video", type=['mp4'])
-    if up and st.button("Carica su R2"):
-        s3.upload_fileobj(up, BUCKET, up.name)
-        st.success("Caricato!")
-        st.rerun()
+if st.session_state.role == "admin":
+    # --- SEZIONE ADMIN (Caricamento e Cancellazione) ---
+    st.subheader("🛠️ Gestione Contenuti")
+    up = st.file_uploader("Carica Video", type=['mp4'])
+    if up and st.button("Upload"):
+        with st.spinner("Caricamento..."):
+            s3.upload_fileobj(up, BUCKET, up.name)
+            st.success("Video caricato!")
+            st.rerun()
     
+    st.divider()
     for v in videos:
         c1, c2 = st.columns([4,1])
         c1.write(v)
@@ -89,10 +95,10 @@ if st.session_state.is_admin:
             s3.delete_object(Bucket=BUCKET, Key=v)
             st.rerun()
 else:
-    # Vista Utente Normale
+    # --- SEZIONE UTENTE (Solo Visualizzazione) ---
     if videos:
-        sel = st.selectbox("Scegli un video da riprodurre", videos)
+        sel = st.selectbox("Seleziona video", videos)
         url = get_signed_url(sel)
         st.video(url)
     else:
-        st.info("Nessun video disponibile nel tuo archivio.")
+        st.info("Nessun video disponibile.")
