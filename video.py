@@ -5,13 +5,12 @@ import smtplib
 import random
 from email.message import EmailMessage
 
-# --- CONFIGURAZIONE (Dati fissi) ---
+# --- CONFIGURAZIONE ---
 ADMIN_USER = "Admin"
 ADMIN_PASS = "Philips!"
-# Carichiamo la lista dai secrets
 AUTHORIZED_EMAILS = st.secrets["AUTHORIZED_EMAILS"]
 
-# Connessione R2
+# Connessione Cloudflare R2
 s3 = boto3.client("s3", 
     endpoint_url=st.secrets["R2_ENDPOINT"],
     aws_access_key_id=st.secrets["R2_ACCESS_KEY"],
@@ -21,7 +20,7 @@ s3 = boto3.client("s3",
 )
 BUCKET = st.secrets["BUCKET_NAME"]
 
-# --- FUNZIONI DI SERVIZIO ---
+# --- FUNZIONE INVIO MAIL ---
 def send_otp(target_email, code):
     msg = EmailMessage()
     msg.set_content(f"Il tuo codice di accesso per il portale video è: {code}")
@@ -29,73 +28,75 @@ def send_otp(target_email, code):
     msg["From"] = st.secrets["EMAIL_SENDER"]
     msg["To"] = target_email
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(st.secrets["EMAIL_SENDER"], st.secrets["EMAIL_PASSWORD"])
-            server.send_message(msg)
+        # Usiamo STARTTLS per massima compatibilità con Gmail
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(st.secrets["EMAIL_SENDER"], st.secrets["EMAIL_PASSWORD"])
+        server.send_message(msg)
+        server.quit()
         return True
     except Exception as e:
-        st.error(f"Errore mail: {e}")
+        st.error(f"Errore tecnico invio mail: {e}")
         return False
 
-# --- GESTIONE STATO LOGIN ---
+# --- GESTIONE STATO ---
 if "login_step" not in st.session_state:
-    st.session_state.login_step = "start" # start, verify_otp, authorized
+    st.session_state.login_step = "step1" # step1, step2, authorized
 
-# --- INTERFACCIA LOGIN ---
+# --- STEP 1: IDENTIFICAZIONE ---
+if st.session_state.login_step == "step1":
+    st.title("🔐 Accesso Portale")
+    user_id = st.text_input("Inserisci Username o Email")
+    
+    if st.button("Continua"):
+        if user_id == ADMIN_USER:
+            st.session_state.temp_user = user_id
+            st.session_state.login_step = "step2"
+            st.rerun()
+        elif user_id in AUTHORIZED_EMAILS:
+            otp = str(random.randint(100000, 999999))
+            st.session_state.generated_otp = otp
+            st.session_state.temp_user = user_id
+            with st.spinner("Invio codice OTP in corso..."):
+                if send_otp(user_id, otp):
+                    st.session_state.login_step = "step2"
+                    st.rerun()
+        else:
+            st.error("Utente non autorizzato.")
 
-if st.session_state.login_step == "start":
-    st.title("🔐 Login Portale")
-    identificativo = st.text_input("Inserisci Username o Email")
-    password_admin = st.text_input("Password (solo se sei Admin)", type="password")
+# --- STEP 2: VERIFICA (PASSWORD O OTP) ---
+elif st.session_state.login_step == "step2":
+    st.title("🛡️ Verifica Identità")
+    
+    if st.session_state.temp_user == ADMIN_USER:
+        st.write("Identità confermata: **Amministratore**")
+        secret = st.text_input("Inserisci Password Admin", type="password")
+    else:
+        st.write(f"Codice inviato a: **{st.session_state.temp_user}**")
+        secret = st.text_input("Inserisci il codice OTP ricevuto via mail")
 
-    if st.button("Procedi"):
-        # 1. È l'Admin?
-        if identificativo == ADMIN_USER and password_admin == ADMIN_PASS:
+    col1, col2 = st.columns(2)
+    if col1.button("Accedi"):
+        # Verifica Admin
+        if st.session_state.temp_user == ADMIN_USER and secret == ADMIN_PASS:
             st.session_state.role = "admin"
             st.session_state.login_step = "authorized"
             st.rerun()
-        
-        # 2. È un utente autorizzato?
-        elif identificativo in AUTHORIZED_EMAILS:
-            otp = str(random.randint(100000, 999999))
-            st.session_state.generated_otp = otp
-            st.session_state.target_email = identificativo
-            
-            with st.spinner("Invio codice in corso..."):
-                if send_otp(identificativo, otp):
-                    st.session_state.login_step = "verify_otp"
-                    st.rerun()
-        else:
-            st.error("Accesso non autorizzato per questo identificativo.")
-
-elif st.session_state.login_step == "verify_otp":
-    st.title("📧 Verifica Codice")
-    st.write(f"Abbiamo inviato un codice a: **{st.session_state.target_email}**")
-    codice_inserito = st.text_input("Inserisci il codice ricevuto via mail")
-    
-    col1, col2 = st.columns(2)
-    if col1.button("Verifica e Entra"):
-        if codice_inserito == st.session_state.generated_otp:
+        # Verifica Utente
+        elif secret == st.session_state.generated_otp:
             st.session_state.role = "user"
             st.session_state.login_step = "authorized"
             st.rerun()
         else:
-            st.error("Codice non corretto.")
-            
-    if col2.button("Torna indietro"):
-        st.session_state.login_step = "start"
+            st.error("Credenziali o codice non validi.")
+
+    if col2.button("Annulla / Cambia Utente"):
+        st.session_state.login_step = "step1"
         st.rerun()
 
-# --- AREA RISERVATA (Una volta loggati) ---
+# --- AREA RISERVATA ---
 if st.session_state.login_step == "authorized":
-    st.sidebar.title("Opzioni")
-    if st.sidebar.button("Logout"):
-        st.session_state.login_step = "start"
-        st.rerun()
-
-    if st.session_state.role == "admin":
-        st.header("🛠️ Dashboard Amministratore")
-        # Inserisci qui il codice per caricare/cancellare video (già fatto sopra)
-    else:
-        st.header("📺 I tuoi Video")
-        # Inserisci qui il codice per la selectbox e il player video
+    st.sidebar.button("Logout", on_click=lambda: st.session_state.update({"login_step": "step1"}))
+    
+    # ... qui inserisci la logica dei video (list_videos, st.video, ecc.) ...
+    st.success(f"Benvenuto nel portale ({st.session_state.role})")
