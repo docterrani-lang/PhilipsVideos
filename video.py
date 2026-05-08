@@ -1,110 +1,83 @@
-
 import streamlit as st
-from github import Github
-import base64
+import boto3
+from botocore.config import Config
 
-# --- CONFIGURAZIONE E ACCESSO ---
-ADMIN_USER = st.secrets["ADMIN_USER"]
-ADMIN_PASS = st.secrets["ADMIN_PASS"]
-GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
-REPO_NAME = st.secrets["REPO_NAME"]
-VIDEO_PATH = st.secrets["VIDEO_PATH"]
+# --- CONNESSIONE R2 ---
+s3 = boto3.client(
+    "s3",
+    endpoint_url=st.secrets["R2_ENDPOINT"],
+    aws_access_key_id=st.secrets["R2_ACCESS_KEY"],
+    aws_secret_access_key=st.secrets["R2_SECRET_KEY"],
+    config=Config(signature_version="s3v4"),
+    region_name="auto",
+)
 
-# Connessione a GitHub
-g = Github(GITHUB_TOKEN)
-repo = g.get_repo(REPO_NAME)
+BUCKET = st.secrets["BUCKET_NAME"]
 
-# --- CSS PER PROTEZIONE VIDEO ---
-# Nasconde il tasto download e il menu contestuale (tasto destro)
+# --- CSS PROTEZIONE ---
 st.markdown("""
-    <style>
-    video::-internal-media-controls-download-button {
-        display:none;
-    }
-    video::-webkit-media-controls-enclosure {
-        overflow:hidden;
-    }
-    video::-webkit-media-controls-panel {
-        width: calc(100% + 30px); 
-    }
-    </style>
-    <script>
-    document.addEventListener('contextmenu', event => event.preventDefault());
-    </script>
+    <style> video::-internal-media-controls-download-button { display:none; } </style>
+    <script> document.addEventListener('contextmenu', event => event.preventDefault()); </script>
     """, unsafe_allow_html=True)
 
-# --- FUNZIONI GITHUB ---
-def get_video_list():
-    contents = repo.get_contents(VIDEO_PATH)
-    return [f for f in contents if f.name.endswith(('.mp4', '.mov', '.avi'))]
+# --- FUNZIONI ---
+def list_videos():
+    response = s3.list_objects_v2(Bucket=BUCKET)
+    return [obj['Key'] for obj in response.get('Contents', []) if obj['Key'].endswith('.mp4')]
 
 def upload_video(file):
-    content = file.read()
-    repo.create_file(f"{VIDEO_PATH}/{file.name}", f"Upload {file.name}", content)
-    st.success(f"Video {file.name} caricato!")
+    # R2 accetta tranquillamente 300MB
+    s3.upload_fileobj(file, BUCKET, file.name)
+    st.success("Caricamento completato!")
 
-def delete_video(file_path, sha):
-    repo.delete_file(file_path, "Eliminazione video", sha)
-    st.warning("Video eliminato.")
+def get_signed_url(key):
+    # Genera un link sicuro che dura 1 ora
+    return s3.generate_presigned_url(
+        'get_object',
+        Params={'Bucket': BUCKET, 'Key': key},
+        ExpiresIn=3600
+    )
 
-# --- INTERFACCIA ---
-st.title("🎬 Video Archive")
+# --- UI ---
+st.title("📽️ Video Storage 300MB+")
 
-# Sidebar per Login Amministratore
+if "admin" not in st.session_state: st.session_state.admin = False
+
 with st.sidebar:
-    st.header("Area Riservata")
-    if "admin_logged_in" not in st.session_state:
-        st.session_state.admin_logged_in = False
-
-    if not st.session_state.admin_logged_in:
-        user = st.text_input("Username")
-        pwd = st.text_input("Password", type="password")
-        if st.button("Login Admin"):
-            if user == ADMIN_USER and pwd == ADMIN_PASS:
-                st.session_state.admin_logged_in = True
+    if not st.session_state.admin:
+        u = st.text_input("Admin User")
+        p = st.text_input("Admin Pass", type="password")
+        if st.button("Login"):
+            if u == st.secrets["ADMIN_USER"] and p == st.secrets["ADMIN_PASS"]:
+                st.session_state.admin = True
                 st.rerun()
-            else:
-                st.error("Credenziali errate")
     else:
-        st.write("Sei loggato come **Admin**")
         if st.button("Logout"):
-            st.session_state.admin_logged_in = False
+            st.session_state.admin = False
             st.rerun()
 
-# --- LOGICA VISUALIZZAZIONE ---
-videos = get_video_list()
+videos = list_videos()
 
-if st.session_state.admin_logged_in:
-    st.subheader("🛠️ Gestione Amministratore")
-    
-    # Upload
-    uploaded_file = st.file_uploader("Carica un nuovo video", type=['mp4', 'mov'])
-    if uploaded_file is not None:
-        if st.button("Conferma Caricamento"):
-            upload_video(uploaded_file)
+if st.session_state.admin:
+    st.header("🛠️ Pannello Admin")
+    up = st.file_uploader("Carica Video (senza limiti)", type=['mp4'])
+    if up and st.button("Inizia Upload"):
+        with st.spinner("Trasferimento al cloud in corso..."):
+            upload_video(up)
             st.rerun()
     
     st.divider()
-    
-    # Lista con opzione elimina
     for v in videos:
-        col1, col2 = st.columns([3, 1])
-        col1.write(v.name)
-        if col2.button("Elimina", key=v.sha):
-            delete_video(v.path, v.sha)
+        c1, c2 = st.columns([4,1])
+        c1.write(v)
+        if c2.button("Elimina", key=v):
+            s3.delete_object(Bucket=BUCKET, Key=v)
             st.rerun()
-
 else:
-    # Vista Utente Semplice (Autorizzato da Streamlit Cloud)
-    st.subheader("📺 I tuoi Video")
-    if not videos:
-        st.info("Nessun video disponibile al momento.")
+    st.header("📺 Streaming")
+    if videos:
+        sel = st.selectbox("Seleziona video", videos)
+        url = get_signed_url(sel)
+        st.video(url)
     else:
-        selected_video_name = st.selectbox("Scegli un video da guardare", [v.name for v in videos])
-        
-        # Trova l'oggetto file corrispondente
-        selected_video = next(v for v in videos if v.name == selected_video_name)
-        
-        # Usiamo il link "download_url" di GitHub che è un link diretto temporaneo
-        st.video(selected_video.download_url)
-        st.caption(f"Stai guardando: {selected_video_name}")
+        st.info("Nessun video presente.")
