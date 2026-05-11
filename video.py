@@ -10,40 +10,38 @@ from datetime import datetime
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="PHILIPS SPECTRAL CT WEBINAR", layout="wide")
 
-# --- PHILIPS BRAND DESIGN (CSS AGGIORNATO) ---
+# --- PHILIPS BRAND DESIGN (CSS) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0066a1; color: #ffffff; }
     html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
     
-    /* Messaggi di Errore/Successo personalizzati per sfondo blu */
-    .stAlert { background-color: rgba(255, 255, 255, 0.9) !important; color: #0066a1 !important; border: none !important; }
-    .stAlert p { color: #0066a1 !important; font-weight: bold; }
-    
-    /* Titoli e Testi */
-    h1, h2, h3, h4, span, label, p { color: #ffffff !important; }
-    .stMarkdown { color: #ffffff !important; }
-
-    /* Input Fields */
-    div.stTextInput > div > div > input { background-color: #ffffff !important; color: #0066a1 !important; }
-    div.stTextArea > div > div > textarea { background-color: #ffffff !important; color: #0066a1 !important; }
-    div.stSelectbox > div > div { background-color: #ffffff !important; color: #0066a1 !important; }
-
-    /* Pulsanti */
+    /* Testo scuro nei pulsanti bianchi (Migliorata leggibilità) */
     div.stButton > button { 
-        background-color: #ffffff !important; color: #0066a1 !important; 
-        border-radius: 4px; font-weight: bold; height: 45px; width: 100%; border: none;
+        background-color: #ffffff !important; 
+        color: #004d7a !important; /* Blu scuro */
+        border-radius: 4px; 
+        font-weight: bold; 
+        height: 45px; 
+        width: 100%; 
+        border: none;
+        font-size: 16px;
     }
-    div.stButton > button:hover { background-color: #e6e6e6 !important; }
+    div.stButton > button:hover { background-color: #e6e6e6 !important; color: #003352 !important; }
     
-    /* Box Admin */
+    /* Messaggi di avviso con testo scuro per contrasto */
+    .stAlert { background-color: rgba(255, 255, 255, 0.95) !important; color: #004d7a !important; }
+    .stAlert p { color: #004d7a !important; font-weight: bold; }
+    
+    /* Input Fields */
+    div.stTextInput > div > div > input { background-color: #ffffff !important; color: #004d7a !important; }
+    div.stTextArea > div > div > textarea { background-color: #ffffff !important; color: #004d7a !important; }
+    
+    /* Admin Box */
     .admin-box { 
         background-color: rgba(255, 255, 255, 0.1); 
         padding: 20px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3);
-        margin-top: 20px;
     }
-    
-    /* Nascondi download video */
     video::-internal-media-controls-download-button { display:none; }
     </style>
     """, unsafe_allow_html=True)
@@ -64,7 +62,24 @@ BUCKET = st.secrets["BUCKET_NAME"]
 REQ_FILE = "richieste_accesso.json"
 FEEDBACK_FILE = "feedback_webinar.json"
 
-# --- FUNZIONI DATI ---
+# --- FUNZIONI CORE ---
+
+def send_otp(target_email, code):
+    msg = EmailMessage()
+    msg.set_content(f"Il tuo codice di accesso per PHILIPS SPECTRAL CT WEBINAR è: {code}")
+    msg["Subject"] = "Codice di Verifica Philips"
+    msg["From"] = st.secrets["EMAIL_SENDER"]
+    msg["To"] = target_email
+    try:
+        # SMTP_SSL su porta 465 è il metodo più sicuro per Gmail
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(st.secrets["EMAIL_SENDER"], st.secrets["EMAIL_PASSWORD"])
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        st.error(f"Errore tecnico invio mail: {e}")
+        return False
+
 def load_json(filename):
     try:
         res = s3.get_object(Bucket=BUCKET, Key=filename)
@@ -74,11 +89,20 @@ def load_json(filename):
 def save_json(filename, data):
     s3.put_object(Bucket=BUCKET, Key=filename, Body=json.dumps(data))
 
+def list_videos():
+    try:
+        res = s3.list_objects_v2(Bucket=BUCKET)
+        return [obj['Key'] for obj in res.get('Contents', []) if obj['Key'].endswith('.mp4')]
+    except: return []
+
+def get_signed_url(key):
+    return s3.generate_presigned_url('get_object', Params={'Bucket': BUCKET, 'Key': key}, ExpiresIn=3600)
+
 # --- LOGICA DI ACCESSO ---
 if "login_step" not in st.session_state: st.session_state.login_step = "step1"
 if "show_feedback" not in st.session_state: st.session_state.show_feedback = False
 
-# LOGIN STEP 1 & 2 (Centrati)
+# STEP 1 & 2
 if st.session_state.login_step in ["step1", "step2"]:
     _, col_mid, _ = st.columns([1, 1.5, 1])
     with col_mid:
@@ -95,9 +119,8 @@ if st.session_state.login_step in ["step1", "step2"]:
                     otp = str(random.randint(100000, 999999))
                     st.session_state.generated_otp = otp
                     st.session_state.temp_user = uid
-                    # Invio mail (riutilizza la tua funzione send_otp qui)
-                    # if send_otp(uid, otp): ...
-                    st.session_state.login_step = "step2"; st.rerun()
+                    if send_otp(uid, otp):
+                        st.session_state.login_step = "step2"; st.rerun()
                 else:
                     st.error("Utente non autorizzato.")
                     if st.button("INVIA RICHIESTA DI ACCESSO"):
@@ -109,28 +132,27 @@ if st.session_state.login_step in ["step1", "step2"]:
         
         elif st.session_state.login_step == "step2":
             st.title("Verifica")
+            st.write(f"Utente: **{st.session_state.temp_user}**")
+            st.write("Inserisci il codice ricevuto via mail o la password admin.")
             secret = st.text_input("Codice o Password", type="password" if st.session_state.temp_user == ADMIN_USER else "default")
             if st.button("CONFERMA"):
                 if (st.session_state.temp_user == ADMIN_USER and secret == ADMIN_PASS) or (secret == st.session_state.generated_otp):
                     st.session_state.role = "admin" if st.session_state.temp_user == ADMIN_USER else "user"
                     st.session_state.login_step = "authorized"; st.rerun()
-                else: st.error("Dati errati.")
+                else: st.error("Codice o Password errati.")
     st.stop()
 
 # --- AREA AUTORIZZATA ---
 if st.session_state.login_step == "authorized":
     
-    # GESTIONE POPUP FEEDBACK
+    # POPUP FEEDBACK
     if st.session_state.show_feedback:
         st.title("La tua opinione è importante")
-        st.write("Aiutaci a migliorare i nostri contenuti Spectral CT.")
-        
         with st.form("feedback_form"):
             valutazione = st.select_slider("Quanto hai trovato utile questo webinar?", 
-                                          options=["Inutile", "Poco utile", "Suff", "Utile", "Molto utile"])
+                                          options=["Inutile", "Poco utile", "Suff", "Utile", "Molto utile"], value="Suff")
             interessi = st.text_area("Quali altri argomenti vorresti approfondire?")
-            
-            if st.form_submit_button("INVIA E ESCI"):
+            if st.form_submit_button("INVIA FEEDBACK E ESCI"):
                 feedbacks = load_json(FEEDBACK_FILE)
                 feedbacks.append({
                     "user": st.session_state.temp_user,
@@ -142,17 +164,17 @@ if st.session_state.login_step == "authorized":
                 st.session_state.login_step = "step1"
                 st.session_state.show_feedback = False
                 st.rerun()
-        if st.button("Annulla"):
+        if st.button("Torna al portale"):
             st.session_state.show_feedback = False; st.rerun()
         st.stop()
 
-    # LAYOUT PRINCIPALE
+    # LAYOUT PORTALE
     st.title("📽️ PHILIPS SPECTRAL CT WEBINAR")
     c_vid, c_list = st.columns([3, 1])
 
     with c_list:
         st.subheader("Webinar Library")
-        videos = [] # list_videos() - usa la tua funzione qui
+        videos = list_videos()
         for v in videos:
             if st.button(f"▶ {v.replace('.mp4','')}", key=v):
                 st.session_state.active_video = v
@@ -163,9 +185,10 @@ if st.session_state.login_step == "authorized":
 
     with c_vid:
         if "active_video" in st.session_state:
-            st.subheader(v.replace('.mp4',''))
-            # st.video(get_signed_url(...)) - usa la tua funzione qui
-        else: st.info("Seleziona un contenuto a destra.")
+            st.subheader(f"In riproduzione: {st.session_state.active_video.replace('.mp4', '')}")
+            st.video(get_signed_url(st.session_state.active_video))
+        else:
+            st.info("👈 Seleziona un contenuto dalla lista a destra.")
 
         # --- ADMIN PANEL ---
         if st.session_state.role == "admin":
@@ -174,13 +197,19 @@ if st.session_state.login_step == "authorized":
             a1, a2, a3 = st.columns(3)
             with a1:
                 st.write("**Richieste Accesso:**")
-                # Visualizza richieste...
+                reqs = load_json(REQ_FILE)
+                for r in reqs: st.text(f"• {r['email']}")
+                if reqs and st.button("🗑️ Svuota"):
+                    save_json(REQ_FILE, [])
+                    st.rerun()
             with a2:
-                st.write("**Feedback Ricevuti:**")
+                st.write("**Ultimi Feedback:**")
                 fbs = load_json(FEEDBACK_FILE)
-                for f in fbs[-3:]: # Mostra ultimi 3
-                    st.caption(f"{f['valutazione']} - {f['user']}")
+                for f in fbs[-3:]: st.caption(f"{f['valutazione']} - {f['user']}")
             with a3:
-                st.write("**Carica Webinar:**")
-                # Uploader...
+                st.write("**Upload Video:**")
+                up = st.file_uploader("MP4", type=['mp4'])
+                if up and st.button("PUBBLICA"):
+                    s3.upload_fileobj(up, BUCKET, up.name)
+                    st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
