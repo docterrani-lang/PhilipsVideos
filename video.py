@@ -10,66 +10,80 @@ from datetime import datetime
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="PHILIPS SPECTRAL CT WEBINAR", layout="wide")
 
-# --- CSS DEFINITIVO (FORZATO) ---
+# --- CSS DEFINITIVO: RIPRISTINO GRAFICA + FIX COLORI ---
 st.markdown("""
     <style>
-    /* 1. SFONDO GENERALE E TESTI BASE */
+    /* 1. Sfondo e Font */
     .stApp { background-color: #0066a1 !important; }
+    html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
     
-    /* Forza il colore bianco su TUTTE le scritte standard */
-    .stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp div {
+    /* 2. Testi su sfondo Blu: TUTTI BIANCHI */
+    .stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3 {
         color: #ffffff !important;
-        font-family: 'Calibri', sans-serif;
     }
 
-    /* 2. PULSANTI: Sfondo Bianco, Testo BLU PHILIPS */
-    /* Questo selettore è molto specifico per catturare il testo dentro il bottone */
-    button[kind="primary"], button[kind="secondary"], .stButton > button {
+    /* 3. Pulsanti: SFONDO BIANCO, TESTO BLU PHILIPS (Risolto invisibilità) */
+    div.stButton > button {
         background-color: #ffffff !important;
         border: none !important;
+        border-radius: 4px !important;
         height: 45px !important;
         width: 100% !important;
-        border-radius: 4px !important;
     }
-    
-    /* Forza il colore del testo del pulsante in Blu */
-    .stButton > button p, .stButton > button div, .stButton > button span {
+    /* Forza il colore del testo dentro il bottone */
+    div.stButton > button div p, div.stButton > button span {
         color: #0066a1 !important;
         font-weight: bold !important;
     }
 
-    /* 3. NOME UTENTE IN GIALLO (Pagina Verifica) */
+    /* 4. Nome Utente in GIALLO */
     .user-yellow {
         color: #ffff00 !important;
-        font-size: 22px !important;
         font-weight: bold !important;
-        display: block;
-        margin-bottom: 10px;
+        font-size: 20px !important;
     }
 
-    /* 4. TESTI EVIDENZIATI (Box Riproduzione) */
+    /* 5. Testi Evidenziati: BLU su fondo chiaro (Titolo Video) */
     .highlight-box {
-        background-color: rgba(255, 255, 255, 0.2);
-        color: #ffffff !important;
-        padding: 15px;
+        background-color: #e6f3ff;
+        color: #0066a1 !important;
+        padding: 10px 15px;
         border-radius: 5px;
-        border-left: 5px solid #ffff00;
-        margin-bottom: 20px;
+        font-weight: bold;
+        margin-bottom: 15px;
+    }
+    .highlight-box span { color: #0066a1 !important; }
+
+    /* 6. Input Fields: Testo BLU su fondo BIANCO */
+    input { color: #004d7a !important; }
+    textarea { color: #004d7a !important; }
+
+    /* Admin Box semitrasparente */
+    .admin-box { 
+        background-color: rgba(255, 255, 255, 0.1); 
+        padding: 20px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3);
     }
     
-    /* 5. INPUT FIELDS (Scritta Blu dentro fondo Bianco) */
-    input {
-        color: #0066a1 !important;
-    }
-
-    /* Fix per messaggi Error/Info */
-    .stAlert p {
-        color: #000000 !important; /* Testo nero su box colorati per leggibilità */
-    }
+    video::-internal-media-controls-download-button { display:none; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNZIONI (REINSERITE PER SICUREZZA) ---
+# --- CONNESSIONI E FUNZIONI (Logica Integrale) ---
+ADMIN_USER = "Admin"
+ADMIN_PASS = "Philips!"
+AUTHORIZED_EMAILS = st.secrets.get("AUTHORIZED_EMAILS", [])
+
+s3 = boto3.client("s3", 
+    endpoint_url=st.secrets["R2_ENDPOINT"],
+    aws_access_key_id=st.secrets["R2_ACCESS_KEY"],
+    aws_secret_access_key=st.secrets["R2_SECRET_KEY"],
+    config=Config(signature_version="s3v4"),
+    region_name="auto"
+)
+BUCKET = st.secrets["BUCKET_NAME"]
+REQ_FILE = "richieste_accesso.json"
+FEEDBACK_FILE = "feedback_webinar.json"
+
 def send_otp(target_email, code):
     msg = EmailMessage()
     msg.set_content(f"Il tuo codice di accesso per PHILIPS SPECTRAL CT WEBINAR è: {code}")
@@ -83,6 +97,24 @@ def send_otp(target_email, code):
         return True
     except: return False
 
+def load_json(filename):
+    try:
+        res = s3.get_object(Bucket=BUCKET, Key=filename)
+        return json.loads(res['Body'].read().decode('utf-8'))
+    except: return []
+
+def save_json(filename, data):
+    s3.put_object(Bucket=BUCKET, Key=filename, Body=json.dumps(data))
+
+def list_videos():
+    try:
+        res = s3.list_objects_v2(Bucket=BUCKET)
+        return [obj['Key'] for obj in res.get('Contents', []) if obj['Key'].endswith('.mp4')]
+    except: return []
+
+def get_signed_url(key):
+    return s3.generate_presigned_url('get_object', Params={'Bucket': BUCKET, 'Key': key}, ExpiresIn=3600)
+
 # --- LOGICA DI ACCESSO ---
 if "login_step" not in st.session_state: st.session_state.login_step = "step1"
 if "show_feedback" not in st.session_state: st.session_state.show_feedback = False
@@ -90,53 +122,96 @@ if "show_feedback" not in st.session_state: st.session_state.show_feedback = Fal
 if st.session_state.login_step in ["step1", "step2"]:
     _, col_mid, _ = st.columns([1, 1.5, 1])
     with col_mid:
-        st.markdown("## 🏥 Spectral CT Portal")
+        st.image("https://www.logosvgpng.com/wp-content/uploads/2021/05/philips-logo-vector.png", width=180)
         
         if st.session_state.login_step == "step1":
+            st.title("Spectral CT Portal")
             uid = st.text_input("Username o Email")
             if st.button("PROSEGUI"):
-                if uid == "Admin": # Sostituire con ADMIN_USER se variabile presente
+                if uid == ADMIN_USER:
                     st.session_state.temp_user = uid
-                    st.session_state.login_step = "step2"
-                    st.rerun()
-                elif uid in st.secrets.get("AUTHORIZED_EMAILS", []):
+                    st.session_state.login_step = "step2"; st.rerun()
+                elif uid in AUTHORIZED_EMAILS:
                     otp = str(random.randint(100000, 999999))
                     st.session_state.generated_otp = otp
                     st.session_state.temp_user = uid
                     if send_otp(uid, otp):
-                        st.session_state.login_step = "step2"
-                        st.rerun()
+                        st.session_state.login_step = "step2"; st.rerun()
+                else:
+                    st.error("Utente non autorizzato.")
+                    if st.button("INVIA RICHIESTA DI ACCESSO"):
+                        reqs = load_json(REQ_FILE)
+                        reqs.append({"email": uid, "date": datetime.now().strftime("%Y-%m-%d")})
+                        save_json(REQ_FILE, reqs); st.success("Richiesta inviata.")
         
         elif st.session_state.login_step == "step2":
-            # APPLICAZIONE CLASSE GIALLA
+            st.title("Verifica")
+            # NOME UTENTE IN GIALLO
             st.markdown(f"Accesso per: <span class='user-yellow'>{st.session_state.temp_user}</span>", unsafe_allow_html=True)
-            secret = st.text_input("Codice o Password", type="password" if st.session_state.temp_user == "Admin" else "default")
+            secret = st.text_input("Codice o Password", type="password" if st.session_state.temp_user == ADMIN_USER else "default")
             if st.button("CONFERMA"):
-                if secret == st.session_state.get("generated_otp") or secret == "Philips!":
-                    st.session_state.login_step = "authorized"
-                    st.rerun()
+                if (st.session_state.temp_user == ADMIN_USER and secret == ADMIN_PASS) or (secret == st.session_state.generated_otp):
+                    st.session_state.role = "admin" if st.session_state.temp_user == ADMIN_USER else "user"
+                    st.session_state.login_step = "authorized"; st.rerun()
+                else: st.error("Dati errati.")
     st.stop()
 
 # --- AREA AUTORIZZATA ---
 if st.session_state.login_step == "authorized":
-    st.markdown("# 📽️ PHILIPS SPECTRAL CT WEBINAR")
     
-    col_v, col_l = st.columns([3, 1])
-    
-    with col_l:
-        st.markdown("### Webinar Library")
-        # Esempio pulsante video
-        if st.button("▶ Webinar Introduzione"):
-            st.session_state.active_video = "Webinar Introduzione"
+    # POPUP FEEDBACK
+    if st.session_state.show_feedback:
+        st.title("Valutazione Webinar")
+        with st.form("feedback_form"):
+            valutazione = st.radio("Quanto hai trovato utile il contenuto?", 
+                                  options=["Inutile", "Poco utile", "Sufficiente", "Utile", "Molto utile"], index=3)
+            interessi = st.text_area("Suggerimenti:")
+            if st.form_submit_button("INVIA E CHIUDI"):
+                feedbacks = load_json(FEEDBACK_FILE)
+                feedbacks.append({"user": st.session_state.temp_user, "valutazione": valutazione, "richieste": interessi, "data": datetime.now().strftime("%Y-%m-%d %H:%M")})
+                save_json(FEEDBACK_FILE, feedbacks)
+                st.session_state.login_step = "step1"; st.session_state.show_feedback = False; st.rerun()
+        if st.button("Annulla"): st.session_state.show_feedback = False; st.rerun()
+        st.stop()
+
+    # LAYOUT PORTALE
+    st.title("📽️ PHILIPS SPECTRAL CT WEBINAR")
+    c_vid, c_list = st.columns([3, 1])
+
+    with c_list:
+        st.subheader("Webinar Library")
+        videos = list_videos()
+        for v in videos:
+            if st.button(f"▶ {v.replace('.mp4','')}", key=v):
+                st.session_state.active_video = v
         
         st.divider()
-        if st.button("🚪 LOGOUT"):
-            st.session_state.login_step = "step1"
-            st.rerun()
+        if st.button("🚪 LOGOUT"): st.session_state.show_feedback = True; st.rerun()
 
-    with col_v:
+    with c_vid:
         if "active_video" in st.session_state:
-            st.markdown(f"<div class='highlight-box'>Stai guardando: {st.session_state.active_video}</div>", unsafe_allow_html=True)
-            st.info("Video in caricamento...")
+            # TITOLO VIDEO EVIDENZIATO: BLU PHILIPS SU FONDO CHIARO
+            st.markdown(f"<div class='highlight-box'>In riproduzione: {st.session_state.active_video.replace('.mp4', '')}</div>", unsafe_allow_html=True)
+            st.video(get_signed_url(st.session_state.active_video))
         else:
-            st.write("Seleziona un webinar dalla lista a destra.")
+            st.info("👈 Seleziona un webinar dalla lista a destra.")
+
+        # --- ADMIN PANEL ---
+        if st.session_state.role == "admin":
+            st.markdown('<div class="admin-box">', unsafe_allow_html=True)
+            st.subheader("⚙️ Pannello Amministratore")
+            a1, a2, a3 = st.columns(3)
+            with a1:
+                st.write("**Richieste Accesso:**")
+                reqs = load_json(REQ_FILE)
+                for r in reqs: st.text(f"• {r['email']}")
+                if reqs and st.button("🗑️ Svuota"): save_json(REQ_FILE, []); st.rerun()
+            with a2:
+                st.write("**Feedback:**")
+                fbs = load_json(FEEDBACK_FILE)
+                for f in fbs[-3:]: st.caption(f"{f['valutazione']} - {f['user']}")
+            with a3:
+                st.write("**Upload:**")
+                up = st.file_uploader("MP4", type=['mp4'])
+                if up and st.button("CARICA"): s3.upload_fileobj(up, BUCKET, up.name); st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
