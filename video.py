@@ -10,14 +10,71 @@ from datetime import datetime
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="PHILIPS SPECTRAL CT WEBINAR", layout="wide")
 
-# --- CSS PERSONALIZZATO ---
+# --- PHILIPS BRAND DESIGN (CSS) ---
 st.markdown("""
     <style>
+    /* Sfondo Generale Philips Blue */
+    .stApp {
+        background-color: #0066a1;
+        color: #ffffff;
+    }
+    
+    /* Font Calibri */
     html, body, [class*="st-"] {
         font-family: 'Calibri', 'Candara', 'Segoe UI', 'Optima', 'Arial', sans-serif;
     }
+
+    /* Card per i contenuti */
+    .stMarkdown, .stButton, .stTextInput, .stFileUploader {
+        color: #333333;
+    }
+
+    /* Stile per i titoli */
+    h1, h2, h3 {
+        color: #ffffff !important;
+        font-weight: bold;
+    }
+
+    /* Box bianchi per input e pannelli */
+    div.stTextInput > div > div > input {
+        background-color: #ffffff;
+        color: #0066a1;
+    }
+
+    /* Pulsanti lista video (Bianchi con testo blu) */
+    div.stButton > button {
+        background-color: #ffffff;
+        color: #0066a1;
+        border: 1px solid #ffffff;
+        border-radius: 4px;
+        font-weight: bold;
+        transition: all 0.3s;
+        height: 45px;
+    }
+    
+    div.stButton > button:hover {
+        background-color: #e6e6e6;
+        color: #004d7a;
+        border: 1px solid #e6e6e6;
+    }
+
+    /* Pulsante Logout / Svuota (Rosso soft o trasparente) */
+    .logout-btn button {
+        background-color: transparent !important;
+        color: #ffcccc !important;
+        border: 1px solid #ffcccc !important;
+    }
+
+    /* Nascondi download video */
     video::-internal-media-controls-download-button { display:none; }
-    .stButton button { width: 100%; border-radius: 5px; }
+    
+    /* Pannello Admin */
+    .admin-box {
+        background-color: rgba(255, 255, 255, 0.1);
+        padding: 20px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -82,105 +139,99 @@ if "login_step" not in st.session_state:
 if "show_reg_popup" not in st.session_state:
     st.session_state.show_reg_popup = False
 
-if st.session_state.login_step == "step1":
-    st.title("🔐 PHILIPS SPECTRAL CT WEBINAR")
-    user_id = st.text_input("Username o Email")
-    
-    if st.button("Continua"):
-        if user_id == ADMIN_USER:
-            st.session_state.temp_user = user_id
-            st.session_state.login_step = "step2"
-            st.rerun()
-        elif user_id in AUTHORIZED_EMAILS:
-            otp = str(random.randint(100000, 999999))
-            st.session_state.generated_otp = otp
-            st.session_state.temp_user = user_id
-            if send_otp(user_id, otp):
-                st.session_state.login_step = "step2"
-                st.rerun()
-        else:
-            st.session_state.pending_email = user_id
-            st.session_state.show_reg_popup = True
+# Layout Login centrato
+if st.session_state.login_step in ["step1", "step2"]:
+    _, col_mid, _ = st.columns([1, 2, 1])
+    with col_mid:
+        st.image("https://www.logosvgpng.com/wp-content/uploads/2021/05/philips-logo-vector.png", width=200) # Logo Philips bianco se possibile
+        
+        if st.session_state.login_step == "step1":
+            st.title("Spectral CT Webinar Portal")
+            user_id = st.text_input("Username o Email")
+            if st.button("ACCEDI"):
+                if user_id == ADMIN_USER:
+                    st.session_state.temp_user = user_id
+                    st.session_state.login_step = "step2"
+                    st.rerun()
+                elif user_id in AUTHORIZED_EMAILS:
+                    otp = str(random.randint(100000, 999999))
+                    st.session_state.generated_otp = otp
+                    st.session_state.temp_user = user_id
+                    if send_otp(user_id, otp):
+                        st.session_state.login_step = "step2"
+                        st.rerun()
+                else:
+                    st.session_state.pending_email = user_id
+                    st.session_state.show_reg_popup = True
 
-    if st.session_state.show_reg_popup:
-        st.error(f"L'utente {st.session_state.pending_email} non risulta autorizzato.")
-        c1, c2 = st.columns(2)
-        if c1.button("Richiedi Registrazione"):
-            save_request(st.session_state.pending_email)
-            st.success("Richiesta inviata all'amministratore.")
-            st.session_state.show_reg_popup = False
-        if c2.button("Annulla"):
-            st.session_state.show_reg_popup = False
-            st.rerun()
-    st.stop()
+            if st.session_state.show_reg_popup:
+                st.error("Accesso non autorizzato.")
+                if st.button("RICHIEDI REGISTRAZIONE"):
+                    save_request(st.session_state.pending_email)
+                    st.success("Richiesta inviata.")
+                    st.session_state.show_reg_popup = False
 
-elif st.session_state.login_step == "step2":
-    st.title("🛡️ Verifica")
-    if st.session_state.temp_user == ADMIN_USER:
-        secret = st.text_input("Password Amministratore", type="password")
-    else:
-        st.info(f"Inserisci il codice inviato a {st.session_state.temp_user}")
-        secret = st.text_input("Codice OTP")
-    
-    if st.button("Accedi"):
-        if (st.session_state.temp_user == ADMIN_USER and secret == ADMIN_PASS) or (secret == st.session_state.generated_otp):
-            st.session_state.role = "admin" if st.session_state.temp_user == ADMIN_USER else "user"
-            st.session_state.login_step = "authorized"
-            st.rerun()
-        else: st.error("Codice o Password errati.")
+        elif st.session_state.login_step == "step2":
+            st.title("Verifica Identità")
+            st.write(f"Utente: {st.session_state.temp_user}")
+            secret = st.text_input("Password o OTP", type="password" if st.session_state.temp_user == ADMIN_USER else "default")
+            if st.button("VERIFICA"):
+                if (st.session_state.temp_user == ADMIN_USER and secret == ADMIN_PASS) or (secret == st.session_state.generated_otp):
+                    st.session_state.role = "admin" if st.session_state.temp_user == ADMIN_USER else "user"
+                    st.session_state.login_step = "authorized"
+                    st.rerun()
+                else: st.error("Codice errato.")
     st.stop()
 
 # --- AREA AUTORIZZATA ---
 if st.session_state.login_step == "authorized":
-    st.title("📽️ PHILIPS SPECTRAL CT WEBINAR")
+    st.title("PHILIPS SPECTRAL CT WEBINAR")
     
     col_video, col_lista = st.columns([3, 1])
     videos = list_videos()
 
     with col_lista:
-        st.markdown("### 🎞️ Lista Webinar")
+        st.subheader("Webinar Library")
         for v in videos:
             name = v.replace('.mp4', '')
-            if st.button(f"▶️ {name}", key=v):
+            if st.button(f"▶ {name}", key=v):
                 st.session_state.active_video = v
         
         st.divider()
-        if st.button("🚪 Esci"):
+        st.markdown('<div class="logout-btn">', unsafe_allow_html=True)
+        if st.button("ESCI"):
             st.session_state.login_step = "step1"
             st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
     with col_video:
         if "active_video" in st.session_state:
-            st.subheader(f"In riproduzione: {st.session_state.active_video.replace('.mp4', '')}")
+            st.subheader(f"Video: {st.session_state.active_video.replace('.mp4', '')}")
             st.video(get_signed_url(st.session_state.active_video))
         else:
-            st.info("Scegli un webinar dalla lista a destra per iniziare.")
+            st.info("Benvenuto. Seleziona un webinar dalla lista a destra per iniziare.")
         
-        # --- SEZIONE GESTIONE (Solo Admin) ---
+        # --- SEZIONE ADMIN (Stilizzata) ---
         if st.session_state.role == "admin":
-            st.divider()
-            st.subheader("⚙️ Pannello di Controllo")
-            
+            st.markdown('<div class="admin-box">', unsafe_allow_html=True)
+            st.subheader("⚙ Pannello Amministratore")
             adm1, adm2 = st.columns(2)
             with adm1:
-                st.markdown("**📥 Richieste di Accesso**")
+                st.markdown("**Richieste Pendenti:**")
                 reqs = get_requests()
                 if reqs:
                     for r in reqs:
-                        st.text(f"• {r['email']} ({r['date']})")
-                    # PULSANTE PER CANCELLARE LA LISTA
-                    if st.button("🗑️ Svuota Lista Richieste"):
+                        st.text(f"• {r['email']}")
+                    if st.button("Svuota Richieste"):
                         clear_requests()
-                        st.success("Lista svuotata!")
                         st.rerun()
-                else: 
-                    st.write("Nessuna richiesta pendente.")
+                else: st.write("Nessuna richiesta.")
             
             with adm2:
-                st.markdown("**📤 Carica Webinar**")
-                up = st.file_uploader("Scegli file MP4", type=['mp4'])
-                if up and st.button("Pubblica Ora"):
-                    with st.spinner("Caricamento..."):
-                        s3.upload_fileobj(up, BUCKET, up.name)
-                        st.success("Caricato con successo!")
-                        st.rerun()
+                st.markdown("**Carica Nuovo Webinar:**")
+                up = st.file_uploader("Scegli MP4", type=['mp4'])
+                if up and st.button("Pubblica"):
+                    s3.upload_fileobj(up, BUCKET, up.name)
+                    st.success("Caricato!")
+                    st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
