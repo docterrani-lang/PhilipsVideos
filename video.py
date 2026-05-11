@@ -8,7 +8,8 @@ from email.message import EmailMessage
 from datetime import datetime
 import io
 
-# --- TENTATIVO CARICAMENTO LIBRERIA PDF ---
+# --- TENTATIVO CARICAMENTO LIBRERIA PDF (MANTIENI PER PDF) ---
+# Ricorda di mettere 'reportlab' nel file requirements.txt
 try:
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import letter
@@ -19,7 +20,7 @@ except ImportError:
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="PHILIPS SPECTRAL CT WEBINAR", layout="wide")
 
-# --- CSS AGGIORNATO (RISOLUTIVO PER TESTI INVISIBILI) ---
+# --- CSS AGGIORNATO (DEFINITIVO PER PULSANTI E UPLOADER) ---
 st.markdown("""
     <style>
     /* 1. Sfondo e Testi Base */
@@ -27,12 +28,11 @@ st.markdown("""
     html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
     .stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp small { color: #ffffff !important; }
 
-    /* 2. FIX DEFINITIVO PULSANTI (Bianchi con testo Blu) */
-    /* Puntiamo a tutti i tipi di bottoni: normali, form, download e uploader */
+    /* 2. FIX DEFINITIVO PULSANTI (Bianchi con testo Blu Philips) */
+    /* Puntiamo a tutti i tipi di bottoni nativi e download */
     div.stButton > button, 
     div.stFormSubmitButton > button, 
-    div.stDownloadButton > button, 
-    [data-testid="stFileUploadDropzone"] button {
+    div.stDownloadButton > button {
         background-color: #ffffff !important;
         border: none !important;
         border-radius: 4px !important;
@@ -41,42 +41,38 @@ st.markdown("""
         transition: 0.3s;
     }
 
-    /* FORZA IL COLORE BLU SU QUALSIASI COSA DENTRO IL BOTTONE */
-    /* Questo risolve il problema delle aree rosse negli screenshot */
+    /* FORZA COLORE BLU PHILIPS DENTRO I BOTTONI NATIVI */
     div.stButton > button *, 
     div.stFormSubmitButton > button *, 
-    div.stDownloadButton > button *,
-    [data-testid="stFileUploadDropzone"] button * {
+    div.stDownloadButton > button * {
         color: #0066a1 !important;
         font-weight: bold !important;
         text-decoration: none !important;
     }
 
-    /* 3. Username in GIALLO */
-    .user-yellow { color: #ffff00 !important; font-weight: bold; font-size: 22px; display: block; margin-bottom: 10px; }
+    /* 3. FIX SPECIFICO PER FILE UPLOADER (Il tasto Sfoglia bianco) */
+    /* Questa regola è specifica per forzare il colore dentro la zona di dropzone */
+    section[data-testid="stFileUploadDropzone"] button {
+        background-color: #ffffff !important;
+        border: none !important;
+        border-radius: 4px !important;
+    }
 
-    /* 4. Pannello Admin e Card */
-    .admin-box { 
-        background-color: rgba(255, 255, 255, 0.1); 
-        padding: 20px; 
-        border-radius: 10px; 
-        border: 1px solid rgba(255, 255, 255, 0.3); 
-        margin-top: 30px; 
+    /* Forza colore blu Philips dentro il pulsante Sfoglia (Risolve il problema dell'immagine) */
+    section[data-testid="stFileUploadDropzone"] button * {
+        color: #0066a1 !important;
+        font-weight: bold !important;
     }
-    .feedback-card { 
-        background-color: rgba(255, 255, 255, 0.15); 
-        padding: 12px; 
-        border-radius: 8px; 
-        margin-bottom: 10px; 
-        border-left: 4px solid #ffff00; 
-    }
-    
-    /* Input colorati correttamente */
+
+    /* 4. Username in GIALLO e Box Admin */
+    .user-yellow { color: #ffff00 !important; font-weight: bold; font-size: 22px; display: block; margin-bottom: 10px; }
+    .admin-box { background-color: rgba(255, 255, 255, 0.1); padding: 20px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3); margin-top: 30px; }
+    .feedback-card { background-color: rgba(255, 255, 255, 0.15); padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #ffff00; }
     input, textarea { color: #004d7a !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNZIONI UTILI ---
+# --- FUNZIONI UTILI (MANTIENI INTEGRE) ---
 def generate_pdf(data, title):
     if not PDF_ENABLED: return None
     buffer = io.BytesIO()
@@ -89,7 +85,7 @@ def generate_pdf(data, title):
     p.save(); buffer.seek(0)
     return buffer
 
-# Connessione S3/R2 (Usa i tuoi secrets esistenti)
+# Connessione S3/R2 (Usa i tuoi secrets)
 s3 = boto3.client("s3", 
     endpoint_url=st.secrets["R2_ENDPOINT"],
     aws_access_key_id=st.secrets["R2_ACCESS_KEY"],
@@ -110,7 +106,7 @@ def save_json(f, d): s3.put_object(Bucket=BUCKET, Key=f, Body=json.dumps(d))
 # --- LOGICA DI ACCESSO ---
 if "login_step" not in st.session_state: st.session_state.login_step = "step1"
 
-# STEP 1: LOGIN
+# LOGIN STEP 1
 if st.session_state.login_step == "step1":
     _, col_mid, _ = st.columns([1, 1.5, 1])
     with col_mid:
@@ -121,7 +117,7 @@ if st.session_state.login_step == "step1":
                 st.session_state.temp_user = uid
                 st.session_state.login_step = "step2"; st.rerun()
 
-# STEP 2: VERIFICA
+# LOGIN STEP 2
 if st.session_state.login_step == "step2":
     _, col_mid, _ = st.columns([1, 1.5, 1])
     with col_mid:
