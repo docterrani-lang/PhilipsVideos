@@ -10,38 +10,41 @@ from datetime import datetime
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="PHILIPS SPECTRAL CT WEBINAR", layout="wide")
 
-# --- PHILIPS BRAND DESIGN (CSS) ---
+# --- PHILIPS BRAND DESIGN (CSS DEFINITIVO) ---
 st.markdown("""
     <style>
+    /* Sfondo e Font */
     .stApp { background-color: #0066a1; color: #ffffff; }
-    html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
+    html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; color: #ffffff; }
     
-    /* Testo scuro nei pulsanti bianchi (Migliorata leggibilità) */
-    div.stButton > button { 
-        background-color: #ffffff !important; 
-        color: #004d7a !important; /* Blu scuro */
-        border-radius: 4px; 
-        font-weight: bold; 
-        height: 45px; 
-        width: 100%; 
-        border: none;
-        font-size: 16px;
-    }
-    div.stButton > button:hover { background-color: #e6e6e6 !important; color: #003352 !important; }
+    /* Tutti i testi devono essere bianchi */
+    label, p, span, .stMarkdown { color: #ffffff !important; }
     
-    /* Messaggi di avviso con testo scuro per contrasto */
-    .stAlert { background-color: rgba(255, 255, 255, 0.95) !important; color: #004d7a !important; }
-    .stAlert p { color: #004d7a !important; font-weight: bold; }
-    
-    /* Input Fields */
+    /* Input Fields con testo scuro per leggibilità */
     div.stTextInput > div > div > input { background-color: #ffffff !important; color: #004d7a !important; }
     div.stTextArea > div > div > textarea { background-color: #ffffff !important; color: #004d7a !important; }
+    
+    /* Pulsanti bianchi con testo Blu Philips */
+    div.stButton > button { 
+        background-color: #ffffff !important; 
+        color: #004d7a !important; 
+        border-radius: 4px; font-weight: bold; height: 45px; width: 100%; border: none;
+    }
+    div.stButton > button:hover { background-color: #e6e6e6 !important; }
+
+    /* Radio buttons (Feedback) - Forza testo bianco */
+    div[data-testid="stMarkdownContainer"] > p { color: #ffffff !important; }
+    
+    /* Messaggi di Alert */
+    .stAlert { background-color: rgba(255, 255, 255, 0.95) !important; color: #004d7a !important; }
+    .stAlert p { color: #004d7a !important; }
     
     /* Admin Box */
     .admin-box { 
         background-color: rgba(255, 255, 255, 0.1); 
         padding: 20px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3);
     }
+    
     video::-internal-media-controls-download-button { display:none; }
     </style>
     """, unsafe_allow_html=True)
@@ -71,14 +74,11 @@ def send_otp(target_email, code):
     msg["From"] = st.secrets["EMAIL_SENDER"]
     msg["To"] = target_email
     try:
-        # SMTP_SSL su porta 465 è il metodo più sicuro per Gmail
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
             server.login(st.secrets["EMAIL_SENDER"], st.secrets["EMAIL_PASSWORD"])
             server.send_message(msg)
         return True
-    except Exception as e:
-        st.error(f"Errore tecnico invio mail: {e}")
-        return False
+    except: return False
 
 def load_json(filename):
     try:
@@ -125,21 +125,21 @@ if st.session_state.login_step in ["step1", "step2"]:
                     st.error("Utente non autorizzato.")
                     if st.button("INVIA RICHIESTA DI ACCESSO"):
                         reqs = load_json(REQ_FILE)
-                        if uid not in [r['email'] for r in reqs]:
-                            reqs.append({"email": uid, "date": datetime.now().strftime("%Y-%m-%d")})
-                            save_json(REQ_FILE, reqs)
-                            st.success("Richiesta inviata.")
+                        reqs.append({"email": uid, "date": datetime.now().strftime("%Y-%m-%d")})
+                        save_json(REQ_FILE, reqs)
+                        st.success("Richiesta inviata.")
         
         elif st.session_state.login_step == "step2":
             st.title("Verifica")
-            st.write(f"Utente: **{st.session_state.temp_user}**")
-            st.write("Inserisci il codice ricevuto via mail o la password admin.")
+            # NOME UTENTE IN GIALLO
+            st.markdown(f"Utente: <span style='color: yellow; font-weight: bold; font-size: 20px;'>{st.session_state.temp_user}</span>", unsafe_allow_html=True)
+            st.write("Inserisci le credenziali per accedere:")
             secret = st.text_input("Codice o Password", type="password" if st.session_state.temp_user == ADMIN_USER else "default")
             if st.button("CONFERMA"):
                 if (st.session_state.temp_user == ADMIN_USER and secret == ADMIN_PASS) or (secret == st.session_state.generated_otp):
                     st.session_state.role = "admin" if st.session_state.temp_user == ADMIN_USER else "user"
                     st.session_state.login_step = "authorized"; st.rerun()
-                else: st.error("Codice o Password errati.")
+                else: st.error("Credenziali errate.")
     st.stop()
 
 # --- AREA AUTORIZZATA ---
@@ -148,23 +148,26 @@ if st.session_state.login_step == "authorized":
     # POPUP FEEDBACK
     if st.session_state.show_feedback:
         st.title("La tua opinione è importante")
+        st.write("Aiutaci a migliorare i nostri contenuti.")
+        
         with st.form("feedback_form"):
-            valutazione = st.select_slider("Quanto hai trovato utile questo webinar?", 
-                                          options=["Inutile", "Poco utile", "Suff", "Utile", "Molto utile"], value="Suff")
-            interessi = st.text_area("Quali altri argomenti vorresti approfondire?")
-            if st.form_submit_button("INVIA FEEDBACK E ESCI"):
+            # FEEDBACK CON VOCI SELEZIONABILI (SOLO 1)
+            valutazione = st.radio("Quanto hai trovato utile questo webinar?", 
+                                  options=["Inutile", "Poco utile", "Sufficiente", "Utile", "Molto utile"], 
+                                  index=3)
+            interessi = st.text_area("Argomenti di tuo interesse per i prossimi webinar:")
+            
+            if st.form_submit_button("INVIA E ESCI"):
                 feedbacks = load_json(FEEDBACK_FILE)
                 feedbacks.append({
-                    "user": st.session_state.temp_user,
-                    "valutazione": valutazione,
-                    "richieste": interessi,
-                    "data": datetime.now().strftime("%Y-%m-%d %H:%M")
+                    "user": st.session_state.temp_user, "valutazione": valutazione,
+                    "richieste": interessi, "data": datetime.now().strftime("%Y-%m-%d %H:%M")
                 })
                 save_json(FEEDBACK_FILE, feedbacks)
                 st.session_state.login_step = "step1"
                 st.session_state.show_feedback = False
                 st.rerun()
-        if st.button("Torna al portale"):
+        if st.button("Annulla"):
             st.session_state.show_feedback = False; st.rerun()
         st.stop()
 
@@ -188,7 +191,7 @@ if st.session_state.login_step == "authorized":
             st.subheader(f"In riproduzione: {st.session_state.active_video.replace('.mp4', '')}")
             st.video(get_signed_url(st.session_state.active_video))
         else:
-            st.info("👈 Seleziona un contenuto dalla lista a destra.")
+            st.info("👈 Seleziona un webinar dalla lista a destra.")
 
         # --- ADMIN PANEL ---
         if st.session_state.role == "admin":
@@ -200,8 +203,7 @@ if st.session_state.login_step == "authorized":
                 reqs = load_json(REQ_FILE)
                 for r in reqs: st.text(f"• {r['email']}")
                 if reqs and st.button("🗑️ Svuota"):
-                    save_json(REQ_FILE, [])
-                    st.rerun()
+                    save_json(REQ_FILE, []); st.rerun()
             with a2:
                 st.write("**Ultimi Feedback:**")
                 fbs = load_json(FEEDBACK_FILE)
