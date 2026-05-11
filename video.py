@@ -10,55 +10,61 @@ from datetime import datetime
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="PHILIPS SPECTRAL CT WEBINAR", layout="wide")
 
-# --- CSS DEFINITIVO: RIPRISTINO GRAFICA + FIX COLORI ---
+# --- CSS DEFINITIVO E AGGIORNATO ---
 st.markdown("""
     <style>
-    /* 1. Sfondo e Font */
+    /* 1. Sfondo Generale */
     .stApp { background-color: #0066a1 !important; }
     html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
     
-    /* 2. Testi su sfondo Blu: TUTTI BIANCHI */
+    /* 2. Testi su sfondo Blu: BIANCHI */
     .stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3 {
         color: #ffffff !important;
     }
 
-    /* 3. Pulsanti: SFONDO BIANCO, TESTO BLU PHILIPS (Risolto invisibilità) */
-    div.stButton > button {
+    /* 3. FIX PULSANTI (Inclusi quelli nei Form) */
+    /* Applichiamo lo stile a TUTTI i tipi di bottoni Streamlit */
+    div.stButton > button, div.stFormSubmitButton > button {
         background-color: #ffffff !important;
         border: none !important;
         border-radius: 4px !important;
         height: 45px !important;
         width: 100% !important;
     }
-    /* Forza il colore del testo dentro il bottone */
-    div.stButton > button div p, div.stButton > button span {
+    
+    /* Forza il colore del testo BLU PHILIPS dentro i bottoni */
+    div.stButton > button div p, 
+    div.stButton > button span, 
+    div.stFormSubmitButton > button div p, 
+    div.stFormSubmitButton > button span {
         color: #0066a1 !important;
         font-weight: bold !important;
     }
 
-    /* 4. Nome Utente in GIALLO */
+    /* 4. Username in GIALLO */
     .user-yellow {
         color: #ffff00 !important;
         font-weight: bold !important;
         font-size: 20px !important;
     }
 
-    /* 5. Testi Evidenziati: BLU su fondo chiaro (Titolo Video) */
+    /* 5. Box Riproduzione: TESTO BLU su fondo AZZURRO CHIARO */
     .highlight-box {
         background-color: #e6f3ff;
         color: #0066a1 !important;
-        padding: 10px 15px;
+        padding: 12px 18px;
         border-radius: 5px;
         font-weight: bold;
         margin-bottom: 15px;
+        border-left: 6px solid #ffff00; /* Un tocco di giallo per richiamare il brand */
     }
-    .highlight-box span { color: #0066a1 !important; }
+    /* Forza il testo interno alla box ad essere blu */
+    .highlight-box * { color: #0066a1 !important; }
 
-    /* 6. Input Fields: Testo BLU su fondo BIANCO */
-    input { color: #004d7a !important; }
-    textarea { color: #004d7a !important; }
+    /* 6. Input Fields */
+    input, textarea { color: #004d7a !important; }
 
-    /* Admin Box semitrasparente */
+    /* Admin Box */
     .admin-box { 
         background-color: rgba(255, 255, 255, 0.1); 
         padding: 20px; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3);
@@ -68,7 +74,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- CONNESSIONI E FUNZIONI (Logica Integrale) ---
+# --- CONNESSIONI E FUNZIONI ---
 ADMIN_USER = "Admin"
 ADMIN_PASS = "Philips!"
 AUTHORIZED_EMAILS = st.secrets.get("AUTHORIZED_EMAILS", [])
@@ -115,7 +121,7 @@ def list_videos():
 def get_signed_url(key):
     return s3.generate_presigned_url('get_object', Params={'Bucket': BUCKET, 'Key': key}, ExpiresIn=3600)
 
-# --- LOGICA DI ACCESSO ---
+# --- LOGICA ACCESSO ---
 if "login_step" not in st.session_state: st.session_state.login_step = "step1"
 if "show_feedback" not in st.session_state: st.session_state.show_feedback = False
 
@@ -139,14 +145,13 @@ if st.session_state.login_step in ["step1", "step2"]:
                         st.session_state.login_step = "step2"; st.rerun()
                 else:
                     st.error("Utente non autorizzato.")
-                    if st.button("INVIA RICHIESTA DI ACCESSO"):
+                    if st.button("INVIA RICHIESTA"):
                         reqs = load_json(REQ_FILE)
                         reqs.append({"email": uid, "date": datetime.now().strftime("%Y-%m-%d")})
                         save_json(REQ_FILE, reqs); st.success("Richiesta inviata.")
         
         elif st.session_state.login_step == "step2":
             st.title("Verifica")
-            # NOME UTENTE IN GIALLO
             st.markdown(f"Accesso per: <span class='user-yellow'>{st.session_state.temp_user}</span>", unsafe_allow_html=True)
             secret = st.text_input("Codice o Password", type="password" if st.session_state.temp_user == ADMIN_USER else "default")
             if st.button("CONFERMA"):
@@ -159,14 +164,14 @@ if st.session_state.login_step in ["step1", "step2"]:
 # --- AREA AUTORIZZATA ---
 if st.session_state.login_step == "authorized":
     
-    # POPUP FEEDBACK
     if st.session_state.show_feedback:
         st.title("Valutazione Webinar")
         with st.form("feedback_form"):
             valutazione = st.radio("Quanto hai trovato utile il contenuto?", 
                                   options=["Inutile", "Poco utile", "Sufficiente", "Utile", "Molto utile"], index=3)
             interessi = st.text_area("Suggerimenti:")
-            if st.form_submit_button("INVIA E CHIUDI"):
+            # Questo è il pulsante che ora si vedrà blu!
+            if st.form_submit_button("INVIA E CHIUDI SESSIONE"):
                 feedbacks = load_json(FEEDBACK_FILE)
                 feedbacks.append({"user": st.session_state.temp_user, "valutazione": valutazione, "richieste": interessi, "data": datetime.now().strftime("%Y-%m-%d %H:%M")})
                 save_json(FEEDBACK_FILE, feedbacks)
@@ -174,7 +179,6 @@ if st.session_state.login_step == "authorized":
         if st.button("Annulla"): st.session_state.show_feedback = False; st.rerun()
         st.stop()
 
-    # LAYOUT PORTALE
     st.title("📽️ PHILIPS SPECTRAL CT WEBINAR")
     c_vid, c_list = st.columns([3, 1])
 
@@ -184,19 +188,16 @@ if st.session_state.login_step == "authorized":
         for v in videos:
             if st.button(f"▶ {v.replace('.mp4','')}", key=v):
                 st.session_state.active_video = v
-        
         st.divider()
         if st.button("🚪 LOGOUT"): st.session_state.show_feedback = True; st.rerun()
 
     with c_vid:
         if "active_video" in st.session_state:
-            # TITOLO VIDEO EVIDENZIATO: BLU PHILIPS SU FONDO CHIARO
             st.markdown(f"<div class='highlight-box'>In riproduzione: {st.session_state.active_video.replace('.mp4', '')}</div>", unsafe_allow_html=True)
             st.video(get_signed_url(st.session_state.active_video))
         else:
-            st.info("👈 Seleziona un webinar dalla lista a destra.")
+            st.info("👈 Seleziona un webinar dalla lista.")
 
-        # --- ADMIN PANEL ---
         if st.session_state.role == "admin":
             st.markdown('<div class="admin-box">', unsafe_allow_html=True)
             st.subheader("⚙️ Pannello Amministratore")
@@ -211,7 +212,7 @@ if st.session_state.login_step == "authorized":
                 fbs = load_json(FEEDBACK_FILE)
                 for f in fbs[-3:]: st.caption(f"{f['valutazione']} - {f['user']}")
             with a3:
-                st.write("**Upload:**")
+                st.write("**Upload Video:**")
                 up = st.file_uploader("MP4", type=['mp4'])
                 if up and st.button("CARICA"): s3.upload_fileobj(up, BUCKET, up.name); st.rerun()
             st.markdown('</div>', unsafe_allow_html=True)
