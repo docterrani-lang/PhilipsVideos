@@ -10,7 +10,7 @@ from datetime import datetime
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="PHILIPS SPECTRAL CT WEBINAR", layout="wide")
 
-# --- PHILIPS BRAND DESIGN (CSS DEFINITIVO E RIGIDO) ---
+# --- PHILIPS BRAND DESIGN (CSS DEFINITIVO) ---
 st.markdown("""
     <style>
     /* 1. Sfondo e Testi base: BIANCHI su BLU */
@@ -20,10 +20,16 @@ st.markdown("""
         color: #ffffff !important; 
     }
     
-    /* 2. Testi Evidenziati: AZZURRO CHIARO */
-    .highlight-text { color: #00d4ff !important; font-weight: bold; }
-    stCaption, .stCaption p { color: #a0eaff !important; }
-
+    /* 2. Testi Evidenziati: BLU PHILIPS su fondo chiaro */
+    /* Usiamo una classe specifica per i titoli o box evidenziati */
+    .highlight-box { 
+        color: #0066a1 !important; 
+        background-color: #e6f3ff; 
+        padding: 5px 10px; 
+        border-radius: 4px; 
+        font-weight: bold; 
+    }
+    
     /* 3. Pulsanti: SFONDO BIANCO, TESTO BLU PHILIPS */
     div.stButton > button { 
         background-color: #ffffff !important; 
@@ -34,15 +40,15 @@ st.markdown("""
     div.stButton > button:hover { background-color: #e6e6e6 !important; color: #004d7a !important; }
 
     /* 4. Input Fields: Testo BLU su fondo BIANCO */
-    div.stTextInput > div > div > input { background-color: #ffffff !important; color: #004d7a !important; }
-    div.stTextArea > div > div > textarea { background-color: #ffffff !important; color: #004d7a !important; }
+    div.stTextInput > div > div > input { background-color: #ffffff !important; color: #0066a1 !important; }
+    div.stTextArea > div > div > textarea { background-color: #ffffff !important; color: #0066a1 !important; }
     
     /* Radio Buttons (Feedback): Testi Bianchi */
     div[data-testid="stMarkdownContainer"] > p { color: #ffffff !important; }
 
-    /* Alert Box: Testo scuro su fondo chiaro per contrasto */
+    /* Alert Box: Forza testo BLU su sfondo quasi bianco */
     .stAlert { background-color: rgba(255, 255, 255, 0.95) !important; border: none !important; }
-    .stAlert p { color: #004d7a !important; font-weight: bold; }
+    .stAlert p { color: #0066a1 !important; font-weight: bold; }
 
     /* Pannello Admin */
     .admin-box { 
@@ -134,7 +140,7 @@ if st.session_state.login_step in ["step1", "step2"]:
         
         elif st.session_state.login_step == "step2":
             st.title("Verifica")
-            # NOME UTENTE IN GIALLO (Punto 4)
+            # NOME UTENTE IN GIALLO
             st.markdown(f"Accesso per: <span style='color: #ffff00; font-weight: bold; font-size: 22px;'>{st.session_state.temp_user}</span>", unsafe_allow_html=True)
             st.write("Inserisci il codice ricevuto o la password:")
             secret = st.text_input("Codice o Password", type="password" if st.session_state.temp_user == ADMIN_USER else "default")
@@ -189,8 +195,8 @@ if st.session_state.login_step == "authorized":
 
     with c_vid:
         if "active_video" in st.session_state:
-            # Titolo video in Azzurro Chiaro (Punto 2)
-            st.markdown(f"### <span class='highlight-text'>In riproduzione: {st.session_state.active_video.replace('.mp4', '')}</span>", unsafe_allow_html=True)
+            # Titolo video evidenziato: Testo BLU PHILIPS su fondo azzurro chiaro
+            st.markdown(f"### <span class='highlight-box'>In riproduzione: {st.session_state.active_video.replace('.mp4', '')}</span>", unsafe_allow_html=True)
             st.video(get_signed_url(st.session_state.active_video))
         else:
             st.info("Seleziona un video dalla lista a destra per iniziare.")
@@ -201,17 +207,17 @@ if st.session_state.login_step == "authorized":
             st.subheader("⚙️ Pannello Amministratore")
             a1, a2, a3 = st.columns(3)
             with a1:
-                st.markdown("<span class='highlight-text'>Richieste Accesso</span>", unsafe_allow_html=True)
+                st.markdown("<p style='color: #00d4ff; font-weight: bold;'>Richieste Accesso</p>", unsafe_allow_html=True)
                 reqs = load_json(REQ_FILE)
                 for r in reqs: st.text(f"• {r['email']}")
                 if reqs and st.button("🗑️ Svuota"):
                     save_json(REQ_FILE, []); st.rerun()
             with a2:
-                st.markdown("<span class='highlight-text'>Feedback Ricevuti</span>", unsafe_allow_html=True)
+                st.markdown("<p style='color: #00d4ff; font-weight: bold;'>Feedback Ricevuti</p>", unsafe_allow_html=True)
                 fbs = load_json(FEEDBACK_FILE)
-                for f in fbs[-3:]: st.markdown(f"<span style='font-size:12px;'>{f['valutazione']} - {f['user']}</span>", unsafe_allow_html=True)
+                for f in fbs[-3:]: st.markdown(f"<span style='font-size:12px; color: #ffffff;'>{f['valutazione']} - {f['user']}</span>", unsafe_allow_html=True)
             with a3:
-                st.markdown("<span class='highlight-text'>Nuovo Upload</span>", unsafe_allow_html=True)
+                st.markdown("<p style='color: #00d4ff; font-weight: bold;'>Nuovo Upload</p>", unsafe_allow_html=True)
                 up = st.file_uploader("Scegli MP4", type=['mp4'])
                 if up and st.button("CARICA"):
                     s3.upload_fileobj(up, BUCKET, up.name); st.rerun()
