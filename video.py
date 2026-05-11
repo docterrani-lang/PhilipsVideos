@@ -10,18 +10,18 @@ from datetime import datetime
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="PHILIPS SPECTRAL CT WEBINAR", layout="wide")
 
-# --- CSS PERSONALIZZATO (Calibri + Layout) ---
+# --- CSS PERSONALIZZATO ---
 st.markdown("""
     <style>
     html, body, [class*="st-"] {
         font-family: 'Calibri', 'Candara', 'Segoe UI', 'Optima', 'Arial', sans-serif;
     }
     video::-internal-media-controls-download-button { display:none; }
-    .video-item { margin-bottom: 10px; }
+    .stButton button { width: 100%; border-radius: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CONFIGURAZIONE ---
+# --- CREDENZIALI E CONNESSIONI ---
 ADMIN_USER = "Admin"
 ADMIN_PASS = "Philips!"
 AUTHORIZED_EMAILS = st.secrets.get("AUTHORIZED_EMAILS", [])
@@ -36,7 +36,7 @@ s3 = boto3.client("s3",
 BUCKET = st.secrets["BUCKET_NAME"]
 REQ_FILE = "richieste_accesso.json"
 
-# --- FUNZIONI SERVIZIO ---
+# --- FUNZIONI ---
 def send_otp(target_email, code):
     msg = EmailMessage()
     msg.set_content(f"Il tuo codice di accesso per PHILIPS SPECTRAL CT WEBINAR è: {code}")
@@ -64,6 +64,9 @@ def save_request(email):
         return True
     return False
 
+def clear_requests():
+    s3.put_object(Bucket=BUCKET, Key=REQ_FILE, Body=json.dumps([]))
+
 def list_videos():
     try:
         res = s3.list_objects_v2(Bucket=BUCKET)
@@ -76,6 +79,8 @@ def get_signed_url(key):
 # --- LOGICA DI ACCESSO ---
 if "login_step" not in st.session_state:
     st.session_state.login_step = "step1"
+if "show_reg_popup" not in st.session_state:
+    st.session_state.show_reg_popup = False
 
 if st.session_state.login_step == "step1":
     st.title("🔐 PHILIPS SPECTRAL CT WEBINAR")
@@ -97,72 +102,85 @@ if st.session_state.login_step == "step1":
             st.session_state.pending_email = user_id
             st.session_state.show_reg_popup = True
 
-    # Popup di Registrazione
-    if st.session_state.get("show_reg_popup"):
-        st.warning(f"L'utente **{st.session_state.pending_email}** non è registrato.")
-        col_reg, col_exit = st.columns(2)
-        if col_reg.button("Invia richiesta di registrazione"):
-            if save_request(st.session_state.pending_email):
-                st.success("Richiesta inviata! L'amministratore ti contatterà presto.")
-            else:
-                st.info("Hai già inviato una richiesta per questa email.")
+    if st.session_state.show_reg_popup:
+        st.error(f"L'utente {st.session_state.pending_email} non risulta autorizzato.")
+        c1, c2 = st.columns(2)
+        if c1.button("Richiedi Registrazione"):
+            save_request(st.session_state.pending_email)
+            st.success("Richiesta inviata all'amministratore.")
             st.session_state.show_reg_popup = False
-        if col_exit.button("Esci"):
+        if c2.button("Annulla"):
             st.session_state.show_reg_popup = False
             st.rerun()
     st.stop()
 
 elif st.session_state.login_step == "step2":
     st.title("🛡️ Verifica")
-    secret = st.text_input("Codice OTP o Password Admin", type="password" if st.session_state.temp_user == ADMIN_USER else "default")
+    if st.session_state.temp_user == ADMIN_USER:
+        secret = st.text_input("Password Amministratore", type="password")
+    else:
+        st.info(f"Inserisci il codice inviato a {st.session_state.temp_user}")
+        secret = st.text_input("Codice OTP")
+    
     if st.button("Accedi"):
         if (st.session_state.temp_user == ADMIN_USER and secret == ADMIN_PASS) or (secret == st.session_state.generated_otp):
             st.session_state.role = "admin" if st.session_state.temp_user == ADMIN_USER else "user"
             st.session_state.login_step = "authorized"
             st.rerun()
-        else: st.error("Dati non validi.")
+        else: st.error("Codice o Password errati.")
     st.stop()
 
 # --- AREA AUTORIZZATA ---
 if st.session_state.login_step == "authorized":
     st.title("📽️ PHILIPS SPECTRAL CT WEBINAR")
+    
     col_video, col_lista = st.columns([3, 1])
     videos = list_videos()
 
     with col_lista:
-        st.markdown("### 🎞️ Elenco Webinar")
+        st.markdown("### 🎞️ Lista Webinar")
         for v in videos:
-            display_name = f"🎞️ {v.replace('.mp4', '')}"
-            if st.button(display_name, key=v, use_container_width=True):
+            name = v.replace('.mp4', '')
+            if st.button(f"▶️ {name}", key=v):
                 st.session_state.active_video = v
+        
         st.divider()
-        if st.button("🚪 Logout", use_container_width=True):
+        if st.button("🚪 Esci"):
             st.session_state.login_step = "step1"
             st.rerun()
 
     with col_video:
         if "active_video" in st.session_state:
-            st.subheader(f"Video: {st.session_state.active_video.replace('.mp4', '')}")
+            st.subheader(f"In riproduzione: {st.session_state.active_video.replace('.mp4', '')}")
             st.video(get_signed_url(st.session_state.active_video))
         else:
-            st.info("Seleziona un webinar dalla lista a destra.")
+            st.info("Scegli un webinar dalla lista a destra per iniziare.")
         
-        # --- SEZIONE ADMIN ---
+        # --- SEZIONE GESTIONE (Solo Admin) ---
         if st.session_state.role == "admin":
             st.divider()
-            adm_col1, adm_col2 = st.columns(2)
-            with adm_col1:
-                with st.expander("📥 Richieste di Accesso"):
-                    reqs = get_requests()
-                    if reqs:
-                        for r in reqs:
-                            st.write(f"📧 **{r['email']}** - {r['date']}")
-                        st.caption("Aggiungi queste mail ai Secrets di Streamlit per abilitarle.")
-                    else: st.write("Nessuna richiesta pendente.")
-            with adm_col2:
-                with st.expander("📤 Carica Video"):
-                    up = st.file_uploader("File MP4", type=['mp4'])
-                    if up and st.button("Pubblica"):
+            st.subheader("⚙️ Pannello di Controllo")
+            
+            adm1, adm2 = st.columns(2)
+            with adm1:
+                st.markdown("**📥 Richieste di Accesso**")
+                reqs = get_requests()
+                if reqs:
+                    for r in reqs:
+                        st.text(f"• {r['email']} ({r['date']})")
+                    # PULSANTE PER CANCELLARE LA LISTA
+                    if st.button("🗑️ Svuota Lista Richieste"):
+                        clear_requests()
+                        st.success("Lista svuotata!")
+                        st.rerun()
+                else: 
+                    st.write("Nessuna richiesta pendente.")
+            
+            with adm2:
+                st.markdown("**📤 Carica Webinar**")
+                up = st.file_uploader("Scegli file MP4", type=['mp4'])
+                if up and st.button("Pubblica Ora"):
+                    with st.spinner("Caricamento..."):
                         s3.upload_fileobj(up, BUCKET, up.name)
-                        st.success("Caricato!")
+                        st.success("Caricato con successo!")
                         st.rerun()
