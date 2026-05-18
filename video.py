@@ -6,15 +6,6 @@ import random
 import json
 from email.message import EmailMessage
 from datetime import datetime
-import io
-
-# --- TENTATIVO CARICAMENTO LIBRERIA PDF ---
-try:
-    from reportlab.pdfgen import canvas
-    from reportlab.lib.pagesizes import letter
-    PDF_ENABLED = True
-except ImportError:
-    PDF_ENABLED = False
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="PHILIPS SPECTRAL CT WEBINAR", layout="wide")
@@ -60,39 +51,54 @@ st.markdown("""
     </script>
     """, unsafe_allow_html=True)
 
-# --- CSS RADICALE (Risolve i bottoni bianchi vuoti e uploader) ---
+# --- CSS DEFINITIVO E MIRATO (Risolve la leggibilità dei testi e uploader) ---
 st.markdown("""
     <style>
+    /* Sfondo e Font */
     .stApp { background-color: #0066a1 !important; }
     html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
     
+    /* Testi principali e titoli in bianco per contrasto con lo sfondo blu */
     .stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp small {
         color: #ffffff !important;
     }
 
-    button, div.stButton > button, div.stFormSubmitButton > button, 
-    div.stDownloadButton > button, [data-testid="stFileUploadDropzone"] button {
+    /* FIX BOTTONI STANDARD: Sfondo bianco */
+    div.stButton > button, div.stFormSubmitButton > button, div.stDownloadButton > button {
         background-color: #ffffff !important;
         border: none !important;
         border-radius: 4px !important;
         min-height: 40px !important;
     }
-
-    button *, div.stButton > button *, div.stDownloadButton > button *, [data-testid="stFileUploadDropzone"] button * {
+    div.stButton > button *, div.stFormSubmitButton > button *, div.stDownloadButton > button * {
         color: #0066a1 !important;
         font-weight: bold !important;
-        text-decoration: none !important;
     }
 
-    [data-testid="stFileUploadDropzone"] {
-        border: 2px dashed rgba(255,255,255,0.4) !important;
-        background-color: rgba(255,255,255,0.05) !important;
+    /* CRITICAL FIX: Ripristina visibilità uploader (Browse files) ed evita scritte bianche su bianco */
+    [data-testid="stFileUploadDropzone"] button {
+        background-color: #0066a1 !important;
+        border: 1px solid #ffffff !important;
+        border-radius: 4px !important;
+    }
+    [data-testid="stFileUploadDropzone"] button * {
+        color: #ffffff !important;
+        font-weight: bold !important;
+    }
+    [data-testid="stFileUploadDropzone"] [data-testid="stWidgetLabel"] p {
+        color: #0066a1 !important; /* Forza l'etichetta dell'uploader ad essere visibile */
+    }
+    [data-testid="stFileUploadDropzone"] p, [data-testid="stFileUploadDropzone"] span {
+        color: #555555 !important; /* Testi secondari di caricamento scuri */
+    }
+
+    /* Input di testo e menu a tendina chiari con testo scuro all'interno */
+    input, textarea, select, div[data-baseweb="select"] * { 
+        color: #004d7a !important; 
+        background-color: #ffffff !important;
     }
     
-    [data-testid="stFileUploadDropzone"] section div div {
-        color: #ffffff !important;
-    }
-
+    /* Layout elementi Admin e Feedback */
     .user-yellow { color: #ffff00 !important; font-weight: bold; font-size: 22px; }
     .admin-box { 
         background-color: rgba(255, 255, 255, 0.1); 
@@ -102,8 +108,6 @@ st.markdown("""
         background-color: rgba(255, 255, 255, 0.15); 
         padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #ffff00; 
     }
-    
-    input, textarea { color: #004d7a !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -120,7 +124,6 @@ try:
 except Exception as e:
     st.error(f"Errore configurazione Cloudflare R2: {e}")
 
-# FUNZIONE INVIATA CODICE OTP VIA EMAIL
 def send_otp(target_email, code):
     msg = EmailMessage()
     msg.set_content(f"Il tuo codice di accesso per PHILIPS SPECTRAL CT WEBINAR è: {code}")
@@ -132,8 +135,7 @@ def send_otp(target_email, code):
             server.login(st.secrets["EMAIL_SENDER"], st.secrets["EMAIL_PASSWORD"])
             server.send_message(msg)
         return True
-    except Exception as e:
-        st.sidebar.error(f"Errore di invio mail: {e}")
+    except:
         return False
 
 def load_json(f):
@@ -143,27 +145,14 @@ def load_json(f):
     except: return []
 
 def save_json(f, d): 
-    try:
-        s3.put_object(Bucket=BUCKET, Key=f, Body=json.dumps(d))
+    try: s3.put_object(Bucket=BUCKET, Key=f, Body=json.dumps(d))
     except: pass
-
-def generate_pdf(data, title):
-    if not PDF_ENABLED: return None
-    buffer = io.BytesIO()
-    p = canvas.Canvas(buffer, pagesize=letter)
-    p.setFont("Helvetica-Bold", 16); p.drawString(100, 750, title)
-    p.setFont("Helvetica", 10); y = 720
-    for item in data:
-        p.drawString(100, y, f"- {item}"); y -= 20
-        if y < 50: p.showPage(); y = 750
-    p.save(); buffer.seek(0)
-    return buffer
 
 # --- GESTIONE NAVIGAZIONE ---
 if "login_step" not in st.session_state: 
     st.session_state.login_step = "step1"
 
-# STEP 1: LOGIN
+# STEP 1: SCHERMATA LOGIN
 if st.session_state.login_step == "step1":
     _, col_mid, _ = st.columns([1, 1.5, 1])
     with col_mid:
@@ -194,25 +183,42 @@ if st.session_state.login_step == "step1":
                     save_json("richieste_accesso.json", reqs)
                     st.success("Richiesta di registrazione inoltrata all'amministratore.")
 
-# STEP 2: VERIFICA
+# STEP 2: VERIFICA CODICE / PASSWORD
 elif st.session_state.login_step == "step2":
     _, col_mid, _ = st.columns([1, 1.5, 1])
     with col_mid:
         st.title("Verifica")
         st.markdown(f"Accesso per: <span class='user-yellow'>{st.session_state.temp_user}</span>", unsafe_allow_html=True)
         pwd = st.text_input("Codice o Password", type="password" if st.session_state.temp_user == "Admin" else "default")
-        if st.button("CONFERMA"):
-            if (st.session_state.temp_user == "Admin" and pwd == "Philips!") or (pwd == st.session_state.get("generated_otp")):
-                st.session_state.role = "admin" if st.session_state.temp_user == "Admin" else "user"
-                st.session_state.login_step = "authorized"
+        
+        c_conf, c_ann = st.columns(2)
+        with c_conf:
+            if st.button("CONFERMA"):
+                if (st.session_state.temp_user == "Admin" and pwd == "Philips!") or (pwd == st.session_state.get("generated_otp")):
+                    st.session_state.role = "admin" if st.session_state.temp_user == "Admin" else "user"
+                    st.session_state.login_step = "authorized"
+                    st.rerun()
+                else:
+                    st.error("Codice o password errati.")
+        with c_ann:
+            if st.button("Annulla"):
+                st.session_state.login_step = "step1"
                 st.rerun()
-            else:
-                st.error("Codice o password errati.")
 
-# AREA AUTORIZZATA
+# AREA PORTALE AUTORIZZATA
 elif st.session_state.login_step == "authorized":
-    st.title("📽️ PHILIPS SPECTRAL CT WEBINAR")
-    st.markdown(f"Benvenuto nel portale medico, <span class='user-yellow'>{st.session_state.temp_user}</span>", unsafe_allow_html=True)
+    # Barra superiore con Titolo e Pulsante di Uscita (EXIT)
+    col_titolo, col_exit = st.columns([4, 1])
+    with col_titolo:
+        st.title("📽️ PHILIPS SPECTRAL CT WEBINAR")
+        st.markdown(f"Benvenuto nel portale medico, <span class='user-yellow'>{st.session_state.temp_user}</span>", unsafe_allow_html=True)
+    with col_exit:
+        st.write(" ") # Spaziatore grafico
+        if st.button("🚪 LOGOUT / EXIT", use_container_width=True):
+            st.session_state.clear() # Cancella tutti i dati di sessione in modo sicuro
+            st.session_state.login_step = "step1"
+            st.rerun()
+            
     st.write("---")
     
     # --- LIBRERIA VIDEO DA CLOUDFLARE R2 ---
@@ -230,7 +236,6 @@ elif st.session_state.login_step == "authorized":
             cols_video = st.columns(2)
             for idx, video_key in enumerate(video_files):
                 with cols_video[idx % 2]:
-                    # Pulizia nome del titolo
                     clean_title = video_key.replace('.mp4', '').replace('_', ' ').upper()
                     st.markdown(f"### 🔹 {clean_title}")
                     
@@ -245,7 +250,7 @@ elif st.session_state.login_step == "authorized":
     except Exception as e:
         st.error(f"Impossibile caricare i video dall'infrastruttura Cloud: {e}")
 
-    # --- AREA UTENTE (FEEDBACK) ---
+    # --- SEZIONE FEEDBACK UTENTE STANDARD ---
     if st.session_state.role == "user":
         st.write("---")
         st.subheader("✍️ Lascia il tuo Feedback")
@@ -274,9 +279,6 @@ elif st.session_state.login_step == "authorized":
             st.markdown("#### 📩 Richieste Accesso")
             reqs = load_json("richieste_accesso.json")
             for r in reqs: st.text(f"• {r.get('email', 'N/A')}")
-            if reqs and PDF_ENABLED:
-                pdf_req = generate_pdf([f"{r['email']} ({r.get('date','')})" for r in reqs], "Richieste Registrazione")
-                st.download_button("Scarica PDF Richieste", data=pdf_req, file_name="richieste.pdf")
             if st.button("Svuota Richieste"):
                 save_json("richieste_accesso.json", [])
                 st.rerun()
@@ -289,20 +291,16 @@ elif st.session_state.login_step == "authorized":
                     <b style="color:#ffff00">{f['valutazione']}</b> - <i>{f['user']}</i><br>
                     {f.get('richieste', '')}
                 </div>""", unsafe_allow_html=True)
-            if fbs and PDF_ENABLED:
-                f_data = [f"[{f['valutazione']}] {f['user']}: {f.get('richieste','')}" for f in fbs]
-                pdf_feed = generate_pdf(f_data, "Report Feedback Webinar")
-                st.download_button("Scarica PDF Feedback", data=pdf_feed, file_name="feedback.pdf")
             if st.button("Svuota Feedback"):
                 save_json("feedback_webinar.json", [])
                 st.rerun()
 
         with c3:
             st.markdown("#### 📤 Caricamento Video")
-            up = st.file_uploader("Seleziona MP4", type=['mp4'], key="uploader_pwa")
+            up = st.file_uploader("Seleziona Video MP4", type=['mp4'], key="uploader_pwa")
             if up and st.button("CARICA ORA"):
                 with st.spinner("Caricamento in corso..."):
                     s3.upload_fileobj(up, BUCKET, up.name)
-                    st.success("Video caricato!")
+                    st.success("Video caricato correttamente su Cloudflare!")
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
