@@ -51,19 +51,19 @@ st.markdown("""
     </script>
     """, unsafe_allow_html=True)
 
-# --- CSS DEFINITIVO E AGGRESSIVO (Forza le scritte in BLU) ---
+# --- CSS INTEGRALE (Aggredisce le variabili interne di Streamlit per forzare il BLU) ---
 st.markdown("""
     <style>
-    /* Sfondo Generale */
+    /* Sfondo Generale dell'applicazione */
     .stApp { background-color: #0066a1 !important; }
     html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
     
-    /* Testi principali dell'applicazione in Bianco */
+    /* Testi e label principali del layout in Bianco */
     .stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp small {
         color: #ffffff !important;
     }
 
-    /* BOTTONI STANDARD DELL'APP (Interfaccia e menu) */
+    /* BOTTONI STANDARD DELL'APP (Interfaccia principale) */
     div.stButton > button, div.stFormSubmitButton > button, div.stDownloadButton > button {
         background-color: #ffffff !important;
         border: none !important;
@@ -75,56 +75,51 @@ st.markdown("""
         font-weight: bold !important;
     }
 
-    /* --- EFFETTIVO FIX CHIRURGICO PER FILE UPLOADER (Scritte in Blu) --- */
-    /* Sfondo del box di caricamento */
+    /* --- AZZERAMENTO VARIABILI E CORREZIONE TESTI SCURI --- */
+    /* Costringe qualsiasi oggetto di input (Uploader, Textarea, Commenti) a cambiare le variabili interne del testo */
+    [data-testid="stFileUploadDropzone"], [data-testid="stTextArea"], input, textarea {
+        --text-color: #004d7a !important;
+        --fallback-text-color: #004d7a !important;
+    }
+
+    /* Forza lo sfondo chiaro della Dropzone dell'Uploader */
     [data-testid="stFileUploadDropzone"] {
         background-color: #f0f2f6 !important;
         border: 2px dashed rgba(255, 255, 255, 0.4) !important;
         border-radius: 8px !important;
     }
     
-    /* Bottone interno "Browse files" dell'uploader */
+    /* Forza il bottone interno dell'uploader ad essere bianco con bordo blu */
     [data-testid="stFileUploadDropzone"] button {
         background-color: #ffffff !important;
         border: 1px solid #0066a1 !important;
         border-radius: 4px !important;
     }
     
-    /* Testo "Browse files" in BLU */
+    /* Testo del bottone "Browse files" in BLU */
     [data-testid="stFileUploadDropzone"] button * {
         color: #0066a1 !important;
         font-weight: bold !important;
     }
     
-    /* ABBATTIMENTO DELLE SCRITTE BIANCHE INTERNE ALL'UPLOADER */
-    /* Questo intercetta e forza al BLU qualsiasi testo generato dentro l'area drag&drop */
-    [data-testid="stFileUploadDropzone"] div,
-    [data-testid="stFileUploadDropzone"] data,
-    [data-testid="stFileUploadDropzone"] span,
-    [data-testid="stFileUploadDropzone"] p,
-    [data-testid="stFileUploadDropzone"] small,
-    .stUploadDropzone div *, 
-    .stUploadDropzone p {
+    /* INTERCETTAZIONE DI MASSA: Qualsiasi testo, paragrafo, span, div o elemento dentro l'uploader DEVE essere blu */
+    [data-testid="stFileUploadDropzone"] *, 
+    .stUploadDropzone *, 
+    [data-testid="stFileUploadDropzone"] div div p,
+    [data-testid="stFileUploadDropzone"] span {
         color: #004d7a !important;
     }
 
-    /* --- FIX INTEGRALE PER I CAMPI DI TESTO E COMMENTI (Scritte in Blu) --- */
-    /* Forza il testo digitato, i placeholder e i testi interni delle textarea/input ad essere scuri */
-    input, textarea, select, textarea input { 
-        color: #004d7a !important; 
+    /* INTERCETTAZIONE DI MASSA PER I COMMENTI (Textarea) */
+    /* Sovrascrive il testo digitato, il testo inserito e lo stile interno dei campi di input del feedback */
+    textarea, [data-testid="stTextArea"] textarea, div[data-baseweb="textarea"] textarea, div[data-baseweb="input"] input {
+        color: #004d7a !important;
         background-color: #ffffff !important;
+        -webkit-text-fill-color: #004d7a !important; /* Forza il riempimento del testo su browser WebKit/Mobile */
     }
     
-    /* Intercetta specificamente il testo digitato dall'utente all'interno della text_area dei commenti */
-    [data-testid="stTextArea"] textarea {
-        color: #004d7a !important;
-        background-color: #ffffff !important;
-    }
-
-    /* Sovrascrittura jolly per tutti i widget di input (inclusi i menu a tendina) */
-    div[data-baseweb="input"] input, 
-    div[data-baseweb="textarea"] textarea,
-    div[data-baseweb="select"] * {
+    /* Fix colore per i menu a tendina (Select) */
+    select, div[data-baseweb="select"] * {
         color: #004d7a !important;
         background-color: #ffffff !important;
     }
