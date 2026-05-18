@@ -51,19 +51,19 @@ st.markdown("""
     </script>
     """, unsafe_allow_html=True)
 
-# --- CSS DEFINITIVO E MIRATO (Risolve la leggibilità dei testi e uploader) ---
+# --- CSS DEFINITIVO SUPER MIRATO (Risolve i testi dell'uploader e bottoni) ---
 st.markdown("""
     <style>
-    /* Sfondo e Font */
+    /* Sfondo Generale */
     .stApp { background-color: #0066a1 !important; }
     html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
     
-    /* Testi principali e titoli in bianco per contrasto con lo sfondo blu */
+    /* Testi principali in Bianco */
     .stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp small {
         color: #ffffff !important;
     }
 
-    /* FIX BOTTONI STANDARD: Sfondo bianco */
+    /* BOTTONI STANDARD DELL'APP (Escluso l'uploader) */
     div.stButton > button, div.stFormSubmitButton > button, div.stDownloadButton > button {
         background-color: #ffffff !important;
         border: none !important;
@@ -75,30 +75,41 @@ st.markdown("""
         font-weight: bold !important;
     }
 
-    /* CRITICAL FIX: Ripristina visibilità uploader (Browse files) ed evita scritte bianche su bianco */
+    /* --- FIX CHIRURGICO PER FILE UPLOADER (PWA / DRAG & DROP) --- */
+    /* Forza lo sfondo del widget a essere leggermente grigio/azzurro chiaro */
+    [data-testid="stFileUploadDropzone"] {
+        background-color: #f0f2f6 !important;
+        border: 2px dashed rgba(255, 255, 255, 0.4) !important;
+        border-radius: 8px !important;
+    }
+    
+    /* Forza il bottone interno "Browse files" */
     [data-testid="stFileUploadDropzone"] button {
-        background-color: #0066a1 !important;
-        border: 1px solid #ffffff !important;
+        background-color: #ffffff !important;
+        border: 1px solid #0066a1 !important;
         border-radius: 4px !important;
     }
+    
+    /* Forza la scritta "Browse files" in BLU PHILIPS */
     [data-testid="stFileUploadDropzone"] button * {
-        color: #ffffff !important;
+        color: #0066a1 !important;
         font-weight: bold !important;
     }
-    [data-testid="stFileUploadDropzone"] [data-testid="stWidgetLabel"] p {
-        color: #0066a1 !important; /* Forza l'etichetta dell'uploader ad essere visibile */
-    }
-    [data-testid="stFileUploadDropzone"] p, [data-testid="stFileUploadDropzone"] span {
-        color: #555555 !important; /* Testi secondari di caricamento scuri */
+    
+    /* Forza TUTTI i testi descrittivi dentro l'uploader ad essere BLU/GRIGIO SCURO (Leggibili!) */
+    [data-testid="stFileUploadDropzone"] p, 
+    [data-testid="stFileUploadDropzone"] span, 
+    [data-testid="stFileUploadDropzone"] div * {
+        color: #004d7a !important;
     }
 
-    /* Input di testo e menu a tendina chiari con testo scuro all'interno */
+    /* Input di testo, form e select stabili con scritte scure all'interno */
     input, textarea, select, div[data-baseweb="select"] * { 
         color: #004d7a !important; 
         background-color: #ffffff !important;
     }
     
-    /* Layout elementi Admin e Feedback */
+    /* Box grafici admin e feedback */
     .user-yellow { color: #ffff00 !important; font-weight: bold; font-size: 22px; }
     .admin-box { 
         background-color: rgba(255, 255, 255, 0.1); 
@@ -111,7 +122,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNZIONI CORE ---
+# --- FUNZIONI CORE CONTROLLO STORAGE CLOUD ---
 try:
     s3 = boto3.client("s3", 
         endpoint_url=st.secrets["R2_ENDPOINT"],
@@ -124,6 +135,7 @@ try:
 except Exception as e:
     st.error(f"Errore configurazione Cloudflare R2: {e}")
 
+# FUNZIONE INVIO MAIL OTP
 def send_otp(target_email, code):
     msg = EmailMessage()
     msg.set_content(f"Il tuo codice di accesso per PHILIPS SPECTRAL CT WEBINAR è: {code}")
@@ -148,11 +160,11 @@ def save_json(f, d):
     try: s3.put_object(Bucket=BUCKET, Key=f, Body=json.dumps(d))
     except: pass
 
-# --- GESTIONE NAVIGAZIONE ---
+# --- GESTIONE STATO NAVIGAZIONE ---
 if "login_step" not in st.session_state: 
     st.session_state.login_step = "step1"
 
-# STEP 1: SCHERMATA LOGIN
+# STEP 1: LOGIN SCHERMATA INIZIALE
 if st.session_state.login_step == "step1":
     _, col_mid, _ = st.columns([1, 1.5, 1])
     with col_mid:
@@ -174,7 +186,7 @@ if st.session_state.login_step == "step1":
                         st.session_state.login_step = "step2"
                         st.rerun()
                     else:
-                        st.error("Errore nell'invio dell'email. Controlla la configurazione SMTP.")
+                        st.error("Errore nell'invio dell'email. Controlla i dati SMTP.")
             else:
                 st.error("Utente non autorizzato.")
                 if st.button("INVIA RICHIESTA DI ACCESSO"):
@@ -183,7 +195,7 @@ if st.session_state.login_step == "step1":
                     save_json("richieste_accesso.json", reqs)
                     st.success("Richiesta di registrazione inoltrata all'amministratore.")
 
-# STEP 2: VERIFICA CODICE / PASSWORD
+# STEP 2: SCHERMATA DI VERIFICA (PASSWORD O OTP)
 elif st.session_state.login_step == "step2":
     _, col_mid, _ = st.columns([1, 1.5, 1])
     with col_mid:
@@ -205,23 +217,22 @@ elif st.session_state.login_step == "step2":
                 st.session_state.login_step = "step1"
                 st.rerun()
 
-# AREA PORTALE AUTORIZZATA
+# AREA AUTORIZZATA (PAGINA PRINCIPALE)
 elif st.session_state.login_step == "authorized":
-    # Barra superiore con Titolo e Pulsante di Uscita (EXIT)
     col_titolo, col_exit = st.columns([4, 1])
     with col_titolo:
         st.title("📽️ PHILIPS SPECTRAL CT WEBINAR")
         st.markdown(f"Benvenuto nel portale medico, <span class='user-yellow'>{st.session_state.temp_user}</span>", unsafe_allow_html=True)
     with col_exit:
-        st.write(" ") # Spaziatore grafico
+        st.write(" ") 
         if st.button("🚪 LOGOUT / EXIT", use_container_width=True):
-            st.session_state.clear() # Cancella tutti i dati di sessione in modo sicuro
+            st.session_state.clear()
             st.session_state.login_step = "step1"
             st.rerun()
             
     st.write("---")
     
-    # --- LIBRERIA VIDEO DA CLOUDFLARE R2 ---
+    # --- GRIGLIA VIDEO DA CLOUDFLARE R2 ---
     try:
         response = s3.list_objects_v2(Bucket=BUCKET)
         video_files = []
@@ -250,7 +261,7 @@ elif st.session_state.login_step == "authorized":
     except Exception as e:
         st.error(f"Impossibile caricare i video dall'infrastruttura Cloud: {e}")
 
-    # --- SEZIONE FEEDBACK UTENTE STANDARD ---
+    # --- SEZIONE FEEDBACK UTENTE ---
     if st.session_state.role == "user":
         st.write("---")
         st.subheader("✍️ Lascia il tuo Feedback")
@@ -268,7 +279,7 @@ elif st.session_state.login_step == "authorized":
                 save_json("feedback_webinar.json", feedbacks)
                 st.success("Grazie! Il tuo feedback è stato registrato.")
 
-    # --- PANNELLO ADMIN ---
+    # --- PANNELLO ADMIN (SOLO RUOLO AMMINISTRATORE) ---
     if st.session_state.role == "admin":
         st.write("---")
         st.markdown('<div class="admin-box">', unsafe_allow_html=True)
