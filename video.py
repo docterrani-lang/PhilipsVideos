@@ -51,19 +51,19 @@ st.markdown("""
     </script>
     """, unsafe_allow_html=True)
 
-# --- CSS DEFINITIVO SUPER MIRATO (Risolve i testi dell'uploader e bottoni) ---
+# --- CSS DEFINITIVO E AGGRESSIVO (Forza le scritte in BLU) ---
 st.markdown("""
     <style>
     /* Sfondo Generale */
     .stApp { background-color: #0066a1 !important; }
     html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
     
-    /* Testi principali in Bianco */
+    /* Testi principali dell'applicazione in Bianco */
     .stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp small {
         color: #ffffff !important;
     }
 
-    /* BOTTONI STANDARD DELL'APP (Escluso l'uploader) */
+    /* BOTTONI STANDARD DELL'APP (Interfaccia e menu) */
     div.stButton > button, div.stFormSubmitButton > button, div.stDownloadButton > button {
         background-color: #ffffff !important;
         border: none !important;
@@ -75,41 +75,61 @@ st.markdown("""
         font-weight: bold !important;
     }
 
-    /* --- FIX CHIRURGICO PER FILE UPLOADER (PWA / DRAG & DROP) --- */
-    /* Forza lo sfondo del widget a essere leggermente grigio/azzurro chiaro */
+    /* --- EFFETTIVO FIX CHIRURGICO PER FILE UPLOADER (Scritte in Blu) --- */
+    /* Sfondo del box di caricamento */
     [data-testid="stFileUploadDropzone"] {
         background-color: #f0f2f6 !important;
         border: 2px dashed rgba(255, 255, 255, 0.4) !important;
         border-radius: 8px !important;
     }
     
-    /* Forza il bottone interno "Browse files" */
+    /* Bottone interno "Browse files" dell'uploader */
     [data-testid="stFileUploadDropzone"] button {
         background-color: #ffffff !important;
         border: 1px solid #0066a1 !important;
         border-radius: 4px !important;
     }
     
-    /* Forza la scritta "Browse files" in BLU PHILIPS */
+    /* Testo "Browse files" in BLU */
     [data-testid="stFileUploadDropzone"] button * {
         color: #0066a1 !important;
         font-weight: bold !important;
     }
     
-    /* Forza TUTTI i testi descrittivi dentro l'uploader ad essere BLU/GRIGIO SCURO (Leggibili!) */
-    [data-testid="stFileUploadDropzone"] p, 
-    [data-testid="stFileUploadDropzone"] span, 
-    [data-testid="stFileUploadDropzone"] div * {
+    /* ABBATTIMENTO DELLE SCRITTE BIANCHE INTERNE ALL'UPLOADER */
+    /* Questo intercetta e forza al BLU qualsiasi testo generato dentro l'area drag&drop */
+    [data-testid="stFileUploadDropzone"] div,
+    [data-testid="stFileUploadDropzone"] data,
+    [data-testid="stFileUploadDropzone"] span,
+    [data-testid="stFileUploadDropzone"] p,
+    [data-testid="stFileUploadDropzone"] small,
+    .stUploadDropzone div *, 
+    .stUploadDropzone p {
         color: #004d7a !important;
     }
 
-    /* Input di testo, form e select stabili con scritte scure all'interno */
-    input, textarea, select, div[data-baseweb="select"] * { 
+    /* --- FIX INTEGRALE PER I CAMPI DI TESTO E COMMENTI (Scritte in Blu) --- */
+    /* Forza il testo digitato, i placeholder e i testi interni delle textarea/input ad essere scuri */
+    input, textarea, select, textarea input { 
         color: #004d7a !important; 
         background-color: #ffffff !important;
     }
     
-    /* Box grafici admin e feedback */
+    /* Intercetta specificamente il testo digitato dall'utente all'interno della text_area dei commenti */
+    [data-testid="stTextArea"] textarea {
+        color: #004d7a !important;
+        background-color: #ffffff !important;
+    }
+
+    /* Sovrascrittura jolly per tutti i widget di input (inclusi i menu a tendina) */
+    div[data-baseweb="input"] input, 
+    div[data-baseweb="textarea"] textarea,
+    div[data-baseweb="select"] * {
+        color: #004d7a !important;
+        background-color: #ffffff !important;
+    }
+    
+    /* Layout Grafico Box Admin e Feedback */
     .user-yellow { color: #ffff00 !important; font-weight: bold; font-size: 22px; }
     .admin-box { 
         background-color: rgba(255, 255, 255, 0.1); 
@@ -122,7 +142,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- FUNZIONI CORE CONTROLLO STORAGE CLOUD ---
+# --- FUNZIONI CORE CLOUD STORAGE ---
 try:
     s3 = boto3.client("s3", 
         endpoint_url=st.secrets["R2_ENDPOINT"],
