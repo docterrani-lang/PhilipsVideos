@@ -51,19 +51,19 @@ st.markdown("""
     </script>
     """, unsafe_allow_html=True)
 
-# --- CSS INTEGRALE (Aggredisce le variabili interne di Streamlit per forzare il BLU) ---
+# --- CSS RADICALE CRASH-TEST (Forza definitivamente i testi in BLU su sfondo chiaro) ---
 st.markdown("""
     <style>
-    /* Sfondo Generale dell'applicazione */
+    /* Sfondo Generale */
     .stApp { background-color: #0066a1 !important; }
     html, body, [class*="st-"] { font-family: 'Calibri', sans-serif; }
     
-    /* Testi e label principali del layout in Bianco */
+    /* Testi principali dell'app (Titoli ed Etichette esterne) in Bianco */
     .stApp p, .stApp label, .stApp span, .stApp h1, .stApp h2, .stApp h3, .stApp small {
         color: #ffffff !important;
     }
 
-    /* BOTTONI STANDARD DELL'APP (Interfaccia principale) */
+    /* BOTTONI STANDARD DELL'APP (Bianchi con scritte Blu) */
     div.stButton > button, div.stFormSubmitButton > button, div.stDownloadButton > button {
         background-color: #ffffff !important;
         border: none !important;
@@ -75,56 +75,63 @@ st.markdown("""
         font-weight: bold !important;
     }
 
-    /* --- AZZERAMENTO VARIABILI E CORREZIONE TESTI SCURI --- */
-    /* Costringe qualsiasi oggetto di input (Uploader, Textarea, Commenti) a cambiare le variabili interne del testo */
-    [data-testid="stFileUploadDropzone"], [data-testid="stTextArea"], input, textarea {
-        --text-color: #004d7a !important;
-        --fallback-text-color: #004d7a !important;
-    }
-
-    /* Forza lo sfondo chiaro della Dropzone dell'Uploader */
+    /* =========================================================================
+       SUPER FIX TOTALITARIO: AZZERA LE REGOLE INTERNE DI STREAMLIT PER GLI INPUT
+       ========================================================================= */
+    
+    /* 1. FORCE COLOR PER FILE UPLOADER (Pannello Caricamento Video) */
     [data-testid="stFileUploadDropzone"] {
         background-color: #f0f2f6 !important;
         border: 2px dashed rgba(255, 255, 255, 0.4) !important;
         border-radius: 8px !important;
     }
-    
-    /* Forza il bottone interno dell'uploader ad essere bianco con bordo blu */
+    /* Forza il bottone interno "Browse files" */
     [data-testid="stFileUploadDropzone"] button {
         background-color: #ffffff !important;
         border: 1px solid #0066a1 !important;
         border-radius: 4px !important;
     }
-    
-    /* Testo del bottone "Browse files" in BLU */
     [data-testid="stFileUploadDropzone"] button * {
         color: #0066a1 !important;
         font-weight: bold !important;
+        -webkit-text-fill-color: #0066a1 !important;
     }
-    
-    /* INTERCETTAZIONE DI MASSA: Qualsiasi testo, paragrafo, span, div o elemento dentro l'uploader DEVE essere blu */
+    /* Radicale: Qualsiasi frammento di testo dentro la dropzone DEVE essere blu scuro */
     [data-testid="stFileUploadDropzone"] *, 
-    .stUploadDropzone *, 
-    [data-testid="stFileUploadDropzone"] div div p,
-    [data-testid="stFileUploadDropzone"] span {
+    [data-testid="stFileUploadDropzone"] div *, 
+    [data-testid="stFileUploadDropzone"] span, 
+    [data-testid="stFileUploadDropzone"] p {
         color: #004d7a !important;
+        -webkit-text-fill-color: #004d7a !important;
     }
 
-    /* INTERCETTAZIONE DI MASSA PER I COMMENTI (Textarea) */
-    /* Sovrascrive il testo digitato, il testo inserito e lo stile interno dei campi di input del feedback */
-    textarea, [data-testid="stTextArea"] textarea, div[data-baseweb="textarea"] textarea, div[data-baseweb="input"] input {
+    /* 2. FORCE COLOR PER LA TEXTAREA (Area dei Commenti/Feedback nel Form) */
+    /* Colpiamo l'intera struttura di input per impedire il riempimento di testo bianco */
+    textarea, 
+    input,
+    [data-testid="stTextArea"] textarea, 
+    div[data-baseweb="textarea"] textarea,
+    div[data-baseweb="input"] input {
         color: #004d7a !important;
         background-color: #ffffff !important;
-        -webkit-text-fill-color: #004d7a !important; /* Forza il riempimento del testo su browser WebKit/Mobile */
+        -webkit-text-fill-color: #004d7a !important; /* Questo distrugge il bug su iOS e Chrome */
     }
-    
-    /* Fix colore per i menu a tendina (Select) */
-    select, div[data-baseweb="select"] * {
+
+    /* Colpisce selettivamente il testo digitato all'interno di qualsiasi elemento chiaro */
+    .stTextArea div div textarea, .stTextInput div div input {
         color: #004d7a !important;
         background-color: #ffffff !important;
+        -webkit-text-fill-color: #004d7a !important;
     }
     
-    /* Layout Grafico Box Admin e Feedback */
+    /* Fix per i menu a selezione (Selectbox) */
+    select, div[data-baseweb="select"] *, div[data-baseweb="select"] div {
+        color: #004d7a !important;
+        background-color: #ffffff !important;
+        -webkit-text-fill-color: #004d7a !important;
+    }
+
+    /* Struttura Box Amministratore e schede Feedback */
     .user-yellow { color: #ffff00 !important; font-weight: bold; font-size: 22px; }
     .admin-box { 
         background-color: rgba(255, 255, 255, 0.1); 
