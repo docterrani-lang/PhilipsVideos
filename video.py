@@ -1,18 +1,28 @@
 import hashlib
 import hmac
 import html
+import io
 import json
 import logging
 import random
 import re
 import smtplib
 import ssl
+import uuid
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
+from zoneinfo import ZoneInfo
 
 import boto3
 import streamlit as st
+import xlsxwriter
 from botocore.config import Config
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 # -----------------------------------------------------------------------------
@@ -32,6 +42,7 @@ logger = logging.getLogger(__name__)
 OTP_SENDER_EMAIL = "docterrani@gmail.com"
 OTP_TTL_MINUTES = 10
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+ROME_TZ = ZoneInfo("Europe/Rome")
 
 
 # -----------------------------------------------------------------------------
@@ -404,6 +415,264 @@ def admin_password_is_valid(value):
 
 
 # -----------------------------------------------------------------------------
+# REGISTRO ACCESSI ED ESPORTAZIONI ADMIN
+# -----------------------------------------------------------------------------
+
+def record_access(identity, role):
+    """Registra ogni login riuscito come evento indipendente su Cloudflare R2."""
+    event_time_utc = now_utc()
+    event_time_local = event_time_utc.astimezone(ROME_TZ)
+    event_id = uuid.uuid4().hex
+    key = (
+        f"access_logs/{event_time_local:%Y/%m/%d}/"
+        f"{event_time_local:%H%M%S_%f}_{event_id}.json"
+    )
+    event = {
+        "event_id": event_id,
+        "user": normalize_email(identity) if role == "user" else str(identity).strip(),
+        "role": role,
+        "accessed_at_utc": event_time_utc.isoformat(),
+        "accessed_at_local": event_time_local.isoformat(),
+        "timezone": "Europe/Rome",
+    }
+    save_json(key, event)
+
+
+def list_access_log_keys():
+    keys = []
+    continuation_token = None
+
+    while True:
+        params = {"Bucket": BUCKET, "Prefix": "access_logs/"}
+        if continuation_token:
+            params["ContinuationToken"] = continuation_token
+
+        response = s3.list_objects_v2(**params)
+        keys.extend(
+            item["Key"]
+            for item in response.get("Contents", [])
+            if item["Key"].lower().endswith(".json")
+        )
+
+        if not response.get("IsTruncated"):
+            break
+        continuation_token = response.get("NextContinuationToken")
+
+    return keys
+
+
+def load_access_logs(start_date, end_date):
+    records = []
+
+    for key in list_access_log_keys():
+        # La data è inclusa nel percorso: evita di scaricare eventi fuori periodo.
+        parts = key.split("/")
+        if len(parts) >= 5:
+            try:
+                key_date = datetime(
+                    int(parts[1]), int(parts[2]), int(parts[3])
+                ).date()
+                if key_date < start_date or key_date > end_date:
+                    continue
+            except (TypeError, ValueError):
+                pass
+
+        record = load_json(key, None)
+        if not isinstance(record, dict):
+            continue
+
+        try:
+            local_dt = datetime.fromisoformat(record["accessed_at_local"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        if start_date <= local_dt.date() <= end_date:
+            record["_local_dt"] = local_dt
+            records.append(record)
+
+    return sorted(records, key=lambda item: item["_local_dt"], reverse=True)
+
+
+def build_access_excel(records, start_date, end_date):
+    output = io.BytesIO()
+
+    with xlsxwriter.Workbook(output, {"in_memory": True}) as workbook:
+        worksheet = workbook.add_worksheet("Registro accessi")
+        worksheet.hide_gridlines(2)
+        worksheet.freeze_panes(4, 0)
+
+        title_format = workbook.add_format(
+            {
+                "bold": True,
+                "font_size": 18,
+                "font_color": "#FFFFFF",
+                "bg_color": "#073B74",
+                "align": "center",
+                "valign": "vcenter",
+            }
+        )
+        subtitle_format = workbook.add_format(
+            {
+                "font_size": 10,
+                "font_color": "#587185",
+                "align": "center",
+            }
+        )
+        header_format = workbook.add_format(
+            {
+                "bold": True,
+                "font_color": "#FFFFFF",
+                "bg_color": "#0B5ED7",
+                "align": "center",
+                "valign": "vcenter",
+                "border": 0,
+            }
+        )
+        date_format = workbook.add_format(
+            {"num_format": "dd/mm/yyyy hh:mm:ss", "font_color": "#12324A"}
+        )
+        text_format = workbook.add_format({"font_color": "#12324A"})
+        role_format = workbook.add_format(
+            {"font_color": "#073B74", "align": "center"}
+        )
+
+        worksheet.set_row(0, 28)
+        worksheet.merge_range("A1:C1", "PHILIPS - REGISTRO ACCESSI WEBINAR", title_format)
+        worksheet.merge_range(
+            "A2:C2",
+            f"Periodo: {start_date:%d/%m/%Y} - {end_date:%d/%m/%Y} | Totale accessi: {len(records)}",
+            subtitle_format,
+        )
+        worksheet.write_row(3, 0, ["Data e ora", "Utente", "Ruolo"], header_format)
+
+        for row_index, record in enumerate(reversed(records), start=4):
+            local_dt = record["_local_dt"].replace(tzinfo=None)
+            worksheet.write_datetime(row_index, 0, local_dt, date_format)
+            worksheet.write(row_index, 1, record.get("user", ""), text_format)
+            role_label = "Amministratore" if record.get("role") == "admin" else "Utente"
+            worksheet.write(row_index, 2, role_label, role_format)
+
+        last_row = max(4, len(records) + 3)
+        worksheet.autofilter(3, 0, last_row, 2)
+        worksheet.set_column("A:A", 22)
+        worksheet.set_column("B:B", 42)
+        worksheet.set_column("C:C", 18)
+        worksheet.set_landscape()
+        worksheet.fit_to_pages(1, 0)
+        worksheet.set_margins(0.35, 0.35, 0.55, 0.55)
+
+    output.seek(0)
+    return output.getvalue()
+
+
+def _pdf_page_number(canvas, document):
+    canvas.saveState()
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColor(colors.HexColor("#587185"))
+    canvas.drawRightString(
+        landscape(A4)[0] - 14 * mm,
+        8 * mm,
+        f"Pagina {document.page}",
+    )
+    canvas.restoreState()
+
+
+def build_access_pdf(records, start_date, end_date):
+    output = io.BytesIO()
+    document = SimpleDocTemplate(
+        output,
+        pagesize=landscape(A4),
+        rightMargin=14 * mm,
+        leftMargin=14 * mm,
+        topMargin=13 * mm,
+        bottomMargin=14 * mm,
+        title="Registro accessi webinar Philips",
+        author="Philips Spectral CT Webinar",
+    )
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "PhilipsTitle",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor("#073B74"),
+        alignment=TA_CENTER,
+        spaceAfter=5 * mm,
+    )
+    info_style = ParagraphStyle(
+        "PhilipsInfo",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=9,
+        leading=12,
+        textColor=colors.HexColor("#587185"),
+        alignment=TA_CENTER,
+    )
+
+    story = [
+        Paragraph("PHILIPS - Registro accessi webinar", title_style),
+        Paragraph(
+            f"Periodo: {start_date:%d/%m/%Y} - {end_date:%d/%m/%Y} | "
+            f"Totale accessi: {len(records)}",
+            info_style,
+        ),
+        Spacer(1, 6 * mm),
+    ]
+
+    table_data = [["Data e ora", "Utente", "Ruolo"]]
+    for record in reversed(records):
+        role_label = "Amministratore" if record.get("role") == "admin" else "Utente"
+        table_data.append(
+            [
+                record["_local_dt"].strftime("%d/%m/%Y %H:%M:%S"),
+                str(record.get("user", "")),
+                role_label,
+            ]
+        )
+
+    if len(table_data) == 1:
+        table_data.append(["-", "Nessun accesso nel periodo selezionato", "-"])
+
+    table = Table(
+        table_data,
+        colWidths=[48 * mm, 150 * mm, 42 * mm],
+        repeatRows=1,
+        hAlign="CENTER",
+    )
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0B5ED7")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("ALIGN", (0, 0), (-1, 0), "CENTER"),
+                ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("LEADING", (0, 0), (-1, -1), 11),
+                ("ALIGN", (0, 1), (0, -1), "CENTER"),
+                ("ALIGN", (2, 1), (2, -1), "CENTER"),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F3F8FD")]),
+                ("LINEBELOW", (0, 0), (-1, 0), 1, colors.HexColor("#073B74")),
+                ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.HexColor("#DCEAF4")),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    story.append(table)
+
+    document.build(
+        story,
+        onFirstPage=_pdf_page_number,
+        onLaterPages=_pdf_page_number,
+    )
+    output.seek(0)
+    return output.getvalue()
+
+
+# -----------------------------------------------------------------------------
 # VIDEO E METADATI
 # -----------------------------------------------------------------------------
 
@@ -533,7 +802,12 @@ elif st.session_state.screen in {"verify_admin", "verify_otp"}:
             valid = admin_password_is_valid(value) if is_admin else otp_is_valid(value)
 
             if valid:
-                st.session_state.role = "admin" if is_admin else "user"
+                role = "admin" if is_admin else "user"
+                try:
+                    record_access(st.session_state.identity, role)
+                except Exception:
+                    logger.exception("Registrazione accesso non riuscita")
+                st.session_state.role = role
                 st.session_state.screen = "portal"
                 st.rerun()
             else:
@@ -629,9 +903,10 @@ elif st.session_state.screen == "portal":
         st.divider()
         st.header("Pannello amministratore")
 
-        requests_tab, video_tab, upload_tab, feedback_tab = st.tabs(
+        requests_tab, access_tab, video_tab, upload_tab, feedback_tab = st.tabs(
             [
                 "Richieste account",
+                "Registro accessi",
                 "Descrizioni video",
                 "Carica video",
                 "Feedback",
@@ -667,6 +942,103 @@ elif st.session_state.screen == "portal":
                             accept_access_request(email)
                             st.success(f"{email} è ora abilitato.")
                             st.rerun()
+
+        with access_tab:
+            st.subheader("Registro degli accessi")
+            st.caption(
+                "Sono registrati esclusivamente i login riusciti. "
+                "Date e orari sono visualizzati nel fuso Europe/Rome."
+            )
+
+            today = datetime.now(ROME_TZ).date()
+            default_start = today.replace(day=1)
+            start_col, end_col = st.columns(2)
+
+            with start_col:
+                start_date = st.date_input(
+                    "Dal",
+                    value=default_start,
+                    key="access_start_date",
+                )
+            with end_col:
+                end_date = st.date_input(
+                    "Al",
+                    value=today,
+                    key="access_end_date",
+                )
+
+            if start_date > end_date:
+                st.error("La data iniziale non può essere successiva alla data finale.")
+            else:
+                with st.spinner("Caricamento del registro…"):
+                    access_records = load_access_logs(start_date, end_date)
+
+                total_accesses = len(access_records)
+                unique_users = len(
+                    {record.get("user", "") for record in access_records}
+                )
+                admin_accesses = sum(
+                    1 for record in access_records if record.get("role") == "admin"
+                )
+
+                metric_1, metric_2, metric_3 = st.columns(3)
+                metric_1.metric("Accessi", total_accesses)
+                metric_2.metric("Utenti unici", unique_users)
+                metric_3.metric("Accessi admin", admin_accesses)
+
+                display_rows = [
+                    {
+                        "Data e ora": record["_local_dt"].strftime("%d/%m/%Y %H:%M:%S"),
+                        "Utente": record.get("user", ""),
+                        "Ruolo": (
+                            "Amministratore"
+                            if record.get("role") == "admin"
+                            else "Utente"
+                        ),
+                    }
+                    for record in access_records
+                ]
+
+                if display_rows:
+                    st.dataframe(
+                        display_rows,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info("Nessun accesso nel periodo selezionato.")
+
+                excel_data = build_access_excel(
+                    access_records,
+                    start_date,
+                    end_date,
+                )
+                pdf_data = build_access_pdf(
+                    access_records,
+                    start_date,
+                    end_date,
+                )
+
+                excel_col, pdf_col = st.columns(2)
+                filename_period = f"{start_date:%Y%m%d}_{end_date:%Y%m%d}"
+
+                with excel_col:
+                    st.download_button(
+                        "Scarica Excel",
+                        data=excel_data,
+                        file_name=f"registro_accessi_{filename_period}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                    )
+
+                with pdf_col:
+                    st.download_button(
+                        "Scarica PDF",
+                        data=pdf_data,
+                        file_name=f"registro_accessi_{filename_period}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
 
         with video_tab:
             if not videos:
