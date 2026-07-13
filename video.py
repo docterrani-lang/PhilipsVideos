@@ -916,8 +916,6 @@ elif st.session_state.screen == "portal":
         if st.button("Esci", use_container_width=True):
             logout()
 
-    render_upcoming_events()
-
     try:
         videos = list_videos()
         metadata = video_metadata()
@@ -958,6 +956,8 @@ elif st.session_state.screen == "portal":
         st.error(f"Impossibile caricare i webinar: {exc}")
         videos = []
         metadata = {}
+
+    render_upcoming_events()
 
     if st.session_state.role == "user":
         st.divider()
