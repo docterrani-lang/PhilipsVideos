@@ -696,6 +696,86 @@ def default_title(video_key):
 
 
 # -----------------------------------------------------------------------------
+# PROSSIMI EVENTI
+# -----------------------------------------------------------------------------
+
+def upcoming_events():
+    data = load_json("upcoming_events.json", [])
+    if not isinstance(data, list):
+        return []
+    return sorted(
+        data,
+        key=lambda item: (
+            item.get("event_date", "9999-12-31"),
+            item.get("created_at", ""),
+        ),
+    )
+
+
+def save_upcoming_events(events):
+    save_json("upcoming_events.json", events)
+
+
+def visible_upcoming_events():
+    today = datetime.now(ROME_TZ).date()
+    visible = []
+
+    for event in upcoming_events():
+        try:
+            event_date = datetime.fromisoformat(event.get("event_date", "")).date()
+        except (TypeError, ValueError):
+            event_date = today
+
+        if event_date >= today:
+            visible.append(event)
+
+    return visible
+
+
+def event_image_url(event):
+    return s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": BUCKET, "Key": event["image_key"]},
+        ExpiresIn=3600,
+    )
+
+
+def render_upcoming_events():
+    events = visible_upcoming_events()
+    st.divider()
+    st.subheader("Prossimi eventi")
+
+    if not events:
+        st.info("Non ci sono eventi programmati al momento.")
+        return
+
+    columns = st.columns(3)
+
+    for index, event in enumerate(events):
+        with columns[index % 3]:
+            try:
+                st.image(event_image_url(event), use_container_width=True)
+            except Exception:
+                logger.exception("Impossibile caricare la locandina evento")
+                st.warning("Locandina temporaneamente non disponibile.")
+
+            title = event.get("title", "").strip()
+            if title:
+                st.markdown(f"#### {html.escape(title)}")
+
+            event_date = event.get("event_date", "")
+            try:
+                formatted_date = datetime.fromisoformat(event_date).strftime("%d/%m/%Y")
+                st.caption(f"Data evento: {formatted_date}")
+            except (TypeError, ValueError):
+                pass
+
+            description = event.get("description", "").strip()
+            if description:
+                st.write(description)
+
+
+# -----------------------------------------------------------------------------
 # STATO DELLA SESSIONE
 # -----------------------------------------------------------------------------
 
@@ -777,6 +857,8 @@ if st.session_state.screen == "login":
                             "La richiesta per questo account è già in attesa di approvazione."
                         )
 
+    render_upcoming_events()
+
 
 elif st.session_state.screen in {"verify_admin", "verify_otp"}:
     _, center, _ = st.columns([1, 1.2, 1])
@@ -833,6 +915,8 @@ elif st.session_state.screen == "portal":
     with logout_col:
         if st.button("Esci", use_container_width=True):
             logout()
+
+    render_upcoming_events()
 
     try:
         videos = list_videos()
@@ -903,10 +987,11 @@ elif st.session_state.screen == "portal":
         st.divider()
         st.header("Pannello amministratore")
 
-        requests_tab, access_tab, video_tab, upload_tab, feedback_tab = st.tabs(
+        requests_tab, access_tab, events_tab, video_tab, upload_tab, feedback_tab = st.tabs(
             [
                 "Richieste account",
                 "Registro accessi",
+                "Prossimi eventi",
                 "Descrizioni video",
                 "Carica video",
                 "Feedback",
@@ -1039,6 +1124,126 @@ elif st.session_state.screen == "portal":
                         mime="application/pdf",
                         use_container_width=True,
                     )
+
+        with events_tab:
+            st.subheader("Gestione prossimi eventi")
+            st.caption(
+                "Gli eventi vengono mostrati nel login e nella pagina webinar. "
+                "Dopo la data indicata non saranno più visibili agli utenti."
+            )
+
+            with st.form("event_upload_form", clear_on_submit=True):
+                event_title = st.text_input("Titolo evento")
+                event_date = st.date_input(
+                    "Data evento",
+                    value=datetime.now(ROME_TZ).date(),
+                    key="new_event_date",
+                )
+                event_description = st.text_area(
+                    "Descrizione breve",
+                    height=90,
+                )
+                event_image = st.file_uploader(
+                    "Locandina evento",
+                    type=["png", "jpg", "jpeg", "webp"],
+                    key="event_image_uploader",
+                )
+                save_event = st.form_submit_button(
+                    "Pubblica evento",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if save_event:
+                if event_image is None:
+                    st.error("Seleziona un’immagine per la locandina.")
+                else:
+                    extension = event_image.name.rsplit(".", 1)[-1].lower()
+                    event_id = uuid.uuid4().hex
+                    image_key = f"event_images/{event_id}.{extension}"
+
+                    try:
+                        s3.upload_fileobj(
+                            event_image,
+                            BUCKET,
+                            image_key,
+                            ExtraArgs={
+                                "ContentType": event_image.type or "application/octet-stream"
+                            },
+                        )
+
+                        events = upcoming_events()
+                        events.append(
+                            {
+                                "event_id": event_id,
+                                "title": event_title.strip(),
+                                "event_date": event_date.isoformat(),
+                                "description": event_description.strip(),
+                                "image_key": image_key,
+                                "created_at": now_utc().isoformat(),
+                                "created_by": st.session_state.identity,
+                            }
+                        )
+                        save_upcoming_events(events)
+                        st.success("Evento pubblicato correttamente.")
+                        st.rerun()
+                    except Exception as exc:
+                        logger.exception("Pubblicazione evento non riuscita")
+                        st.error(f"Impossibile pubblicare l’evento: {exc}")
+
+            all_events = upcoming_events()
+            if not all_events:
+                st.info("Non sono ancora stati caricati eventi.")
+
+            for event in all_events:
+                event_id = event.get("event_id", uuid.uuid4().hex)
+                with st.container(border=True):
+                    preview_col, detail_col, delete_col = st.columns([1.2, 3, 1])
+
+                    with preview_col:
+                        try:
+                            st.image(event_image_url(event), use_container_width=True)
+                        except Exception:
+                            st.caption("Anteprima non disponibile")
+
+                    with detail_col:
+                        st.markdown(
+                            f"**{event.get('title') or 'Evento senza titolo'}**"
+                        )
+                        try:
+                            formatted_date = datetime.fromisoformat(
+                                event.get("event_date", "")
+                            ).strftime("%d/%m/%Y")
+                            st.caption(f"Data evento: {formatted_date}")
+                        except (TypeError, ValueError):
+                            pass
+                        if event.get("description"):
+                            st.write(event["description"])
+
+                    with delete_col:
+                        if st.button(
+                            "Elimina",
+                            key=f"delete_event_{event_id}",
+                            type="secondary",
+                            use_container_width=True,
+                        ):
+                            try:
+                                if event.get("image_key"):
+                                    s3.delete_object(
+                                        Bucket=BUCKET,
+                                        Key=event["image_key"],
+                                    )
+                                remaining = [
+                                    item
+                                    for item in all_events
+                                    if item.get("event_id") != event.get("event_id")
+                                ]
+                                save_upcoming_events(remaining)
+                                st.success("Evento eliminato.")
+                                st.rerun()
+                            except Exception as exc:
+                                logger.exception("Eliminazione evento non riuscita")
+                                st.error(f"Impossibile eliminare l’evento: {exc}")
 
         with video_tab:
             if not videos:
